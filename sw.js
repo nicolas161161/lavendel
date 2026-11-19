@@ -1,6 +1,7 @@
 // Offline-Speicher. Bei jedem Update die Versionsnummer erhöhen (auch VERSION in app.js).
-const CACHE = 'lavendel-v5';
-const FILES = ['./', 'index.html', 'style.css', 'app.js', 'foods.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
+const CACHE = 'lavendel-v6';
+const FILES = ['./', 'index.html', 'style.css', 'app.js', 'foods.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png',
+  'vendor/tabler-icons.min.css', 'vendor/tabler-icons.woff2', 'vendor/html5-qrcode.min.js'];
 
 self.addEventListener('install', e => {
   // cache: 'reload' umgeht den Browser-Zwischenspeicher, damit wirklich die neuen Dateien geladen werden
@@ -32,9 +33,5 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Fremde Dateien (Icons, Scanner): feste Versionen, daher zuerst aus dem Speicher
-  e.respondWith(caches.match(e.request).then(hit => hit || fetch(e.request).then(r => {
-    if (r.ok || r.type === 'opaque') { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
-    return r;
-  })));
+  // Fremde Adressen (nur noch Open Food Facts): nicht speichern, direkt durchreichen
 });

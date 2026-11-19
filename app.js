@@ -2,7 +2,7 @@
 
 /* ---------- Grundlagen ---------- */
 const KEY = 'lavendel-v1';
-const VERSION = 5;
+const VERSION = 6;
 const MEALS = [
   { k: 'fr', n: 'Frühstück', i: 'ti-coffee' },
   { k: 'mi', n: 'Mittagessen', i: 'ti-salad' },
@@ -405,7 +405,7 @@ function loadScanLib() {
   if (window.Html5Qrcode) return Promise.resolve();
   return new Promise((res, rej) => {
     const s = document.createElement('script');
-    s.src = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+    s.src = 'vendor/html5-qrcode.min.js';
     s.onload = res; s.onerror = rej;
     document.head.appendChild(s);
   });
