@@ -104,6 +104,24 @@ main { max-width: 480px; margin: 0 auto;
 .res.new { color: var(--l600); border-bottom: 0; }
 .empty { color: var(--mut); text-align: center; padding: 16px 0; margin: 0; }
 
+/* Rezepte */
+.rcard { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 0; }
+.rcard + .rcard { border-top: 1px solid var(--line); }
+.rcard b { color: var(--l900); }
+.rcard small { display: block; }
+.primary .ti, .secondary .ti { vertical-align: -2px; }
+.stepper { display: flex; align-items: center; gap: 2px; font-weight: 400; color: var(--l600); }
+.stepper .iconbtn { width: 32px; height: 32px; font-size: 17px; background: var(--l50); }
+.stepper span { min-width: 64px; text-align: center; }
+.ing { padding: 7px 0; border-top: 1px dashed var(--line); font-size: 14px; }
+.ing:first-of-type { margin-top: 6px; }
+.ingrow { display: flex; align-items: center; gap: 6px; padding: 7px 0; border-top: 1px dashed var(--line); }
+.ingrow small { display: block; }
+.gin { width: 72px; height: 38px; border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; text-align: right; background: #fff; }
+.unit { color: var(--mut); font-size: 13px; width: 20px; }
+.notes { white-space: pre-wrap; margin: 0; font-size: 14px; }
+textarea { font: inherit; font-size: 16px; color: var(--txt); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; width: 100%; resize: vertical; }
+
 /* Barcode */
 .search .iconbtn { margin-right: -6px; }
 .reader { width: 100%; border-radius: 16px; overflow: hidden; background: var(--l900); min-height: 180px; }
