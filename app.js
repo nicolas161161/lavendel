@@ -2,6 +2,7 @@
 
 /* ---------- Grundlagen ---------- */
 const KEY = 'lavendel-v1';
+const VERSION = 3;
 const MEALS = [
   { k: 'fr', n: 'Frühstück', i: 'ti-coffee' },
   { k: 'mi', n: 'Mittagessen', i: 'ti-salad' },
@@ -237,7 +238,8 @@ function vProfil() {
     <p class="note" style="margin:0 0 6px">Alles wird nur auf diesem Gerät gespeichert. Mach ab und zu ein Backup.</p>
     <button class="secondary" data-act="exportData"><i class="ti ti-download"></i> Backup sichern</button>
     <label class="secondary"><i class="ti ti-upload"></i> Backup laden<input id="imp" type="file" accept="application/json,.json" class="hidden"></label>
-  </div>`;
+  </div>
+  <p class="note" style="text-align:center">Lavendel · Version ${VERSION}</p>`;
 }
 
 /* ---------- Suche & Bottom-Sheet ---------- */
@@ -539,7 +541,18 @@ document.addEventListener('visibilitychange', () => {
 });
 
 if ('serviceWorker' in navigator && !['localhost', '127.0.0.1'].includes(location.hostname)) {
-  navigator.serviceWorker.register('sw.js');
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' });
+  // Neue Version übernommen: einmal neu laden, damit sie sofort sichtbar ist
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading || sheet) return;
+    reloading = true; location.reload();
+  });
+  // iOS öffnet die App oft aus dem Hintergrund, dann aktiv nach Updates schauen
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => {});
+  });
 }
 
 render();

@@ -1,9 +1,10 @@
-// Offline-Cache. Bei jedem Update die Versionsnummer erhöhen.
-const CACHE = 'lavendel-v2';
+// Offline-Speicher. Bei jedem Update die Versionsnummer erhöhen (auch VERSION in app.js).
+const CACHE = 'lavendel-v3';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'foods.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
+  // cache: 'reload' umgeht den Browser-Zwischenspeicher, damit wirklich die neuen Dateien geladen werden
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))));
   self.skipWaiting();
 });
 
@@ -13,15 +14,27 @@ self.addEventListener('activate', e => {
     .then(() => self.clients.claim()));
 });
 
-// Aus dem Cache antworten und im Hintergrund aktualisieren
+const timeout = (ms) => new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms));
+
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-  e.respondWith(caches.open(CACHE).then(async c => {
-    const hit = await c.match(e.request);
-    const net = fetch(e.request).then(r => {
-      if (r.ok || r.type === 'opaque') c.put(e.request, r.clone());
-      return r;
-    }).catch(() => hit);
-    return hit || net;
-  }));
+  const url = new URL(e.request.url);
+
+  if (url.origin === location.origin) {
+    // Eigene Dateien: zuerst online holen (immer aktuell), offline aus dem Speicher
+    e.respondWith(Promise.race([fetch(e.request, { cache: 'no-cache' }), timeout(4000)])
+      .then(r => {
+        if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
+        return r;
+      })
+      .catch(() => caches.match(e.request, { ignoreSearch: true })
+        .then(hit => hit || caches.match('index.html'))));
+    return;
+  }
+
+  // Fremde Dateien (Icons, Scanner): feste Versionen, daher zuerst aus dem Speicher
+  e.respondWith(caches.match(e.request).then(hit => hit || fetch(e.request).then(r => {
+    if (r.ok || r.type === 'opaque') { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
+    return r;
+  })));
 });
