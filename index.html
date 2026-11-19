@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#FBFAFF">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Lavendel">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="style.css">
+<title>Lavendel</title>
+</head>
+<body>
+<main id="view"></main>
+<nav id="nav">
+  <button data-act="tab" data-tab="heute" aria-label="Heute"><i class="ti ti-home"></i><span>Heute</span></button>
+  <button data-act="tab" data-tab="suche" aria-label="Suche"><i class="ti ti-search"></i><span>Suche</span></button>
+  <button data-act="tab" data-tab="rezepte" aria-label="Rezepte"><i class="ti ti-chef-hat"></i><span>Rezepte</span></button>
+  <button data-act="tab" data-tab="auswertung" aria-label="Auswertung"><i class="ti ti-chart-pie"></i><span>Auswertung</span></button>
+  <button data-act="tab" data-tab="profil" aria-label="Profil"><i class="ti ti-user"></i><span>Profil</span></button>
+</nav>
+<div id="sheet" class="hidden"></div>
+<div id="toast"></div>
+<script src="foods.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
