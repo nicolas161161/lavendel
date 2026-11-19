@@ -84,6 +84,14 @@ main { max-width: 480px; margin: 0 auto;
 .res.new { color: var(--l600); border-bottom: 0; }
 .empty { color: var(--mut); text-align: center; padding: 16px 0; margin: 0; }
 
+/* Barcode */
+.search .iconbtn { margin-right: -6px; }
+.reader { width: 100%; border-radius: 16px; overflow: hidden; background: var(--l900); min-height: 180px; }
+.reader video { display: block; width: 100% !important; }
+.codein { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 10px; }
+.codein input { height: 44px; border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; background: #fff; min-width: 0; }
+.codein .secondary { margin: 0; }
+
 /* Formulare */
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--mut); margin-bottom: 10px; }
 .field input, .field select, .amt input, .amt select, .addmedi input, .addmedi select {

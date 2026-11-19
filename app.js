@@ -169,7 +169,7 @@ function vHeute() {
 
 function vSuche() {
   return `<h1>Suche</h1>
-  <div class="search"><i class="ti ti-search"></i><input id="q" type="search" placeholder="Haferflocken, Tofu, Linsen …" autocomplete="off"></div>
+  <div class="search"><i class="ti ti-search"></i><input id="q" type="search" placeholder="Haferflocken, Tofu, Linsen …" autocomplete="off">${scanBtn}</div>
   <div id="res"></div>`;
 }
 
@@ -193,7 +193,7 @@ function vAuswertung() {
     ${row('Eisen', t.fe, m ? 11 : 15, 'mg', '#7F77DD')}
     ${row('Calcium', t.ca, 1000, 'mg', '#7F77DD')}
     ${row('Zink', t.zn, m ? 16 : 10, 'mg', '#7F77DD')}
-    <p class="note">Richtwerte orientiert an der DGE, beim Zink schon an pflanzliche Ernährung angepasst. B12, Jod, Vitamin D und Omega-3 kommen mit der großen Datenbank dazu. Eigene Lebensmittel zählen hier noch nicht mit.</p>
+    <p class="note">Richtwerte orientiert an der DGE, beim Zink schon an pflanzliche Ernährung angepasst. B12, Jod, Vitamin D und Omega-3 kommen mit der großen Datenbank dazu. Bei eigenen und gescannten Produkten fehlen Mineralstoffe oft, weil sie nicht auf der Packung stehen.</p>
   </div>`;
 }
 
@@ -251,7 +251,7 @@ function results(q) {
     list = foods.filter(f => words.every(w => norm(f.name).includes(w)))
       .sort((a, b) => norm(a.name).indexOf(words[0]) - norm(b.name).indexOf(words[0]) || a.name.localeCompare(b.name, 'de'));
   }
-  const rows = list.map(f => `<button class="res" data-act="pick" data-id="${f.id}"><span class="grow">${esc(f.name)}${f.custom ? '<span class="tag">eigenes</span>' : ''}${!words.length && S.recent.includes(f.id) ? '<i class="ti ti-history rec"></i>' : ''}</span><small>${fmt(f.n.kcal)} kcal / 100 ${f.ml ? 'ml' : 'g'}</small></button>`).join('');
+  const rows = list.map(f => `<button class="res" data-act="pick" data-id="${f.id}"><span class="grow">${esc(f.name)}${f.src === 'off' ? '<span class="tag">Produkt</span>' : f.custom ? '<span class="tag">eigenes</span>' : ''}${!words.length && S.recent.includes(f.id) ? '<i class="ti ti-history rec"></i>' : ''}</span><small>${fmt(f.n.kcal)} kcal / 100 ${f.ml ? 'ml' : 'g'}</small></button>`).join('');
   return (rows || '<p class="empty">Nichts gefunden.</p>') +
     `<button class="res new" data-act="newFood"><i class="ti ti-plus"></i><span class="grow">Eigenes Lebensmittel anlegen</span></button>`;
 }
@@ -262,23 +262,113 @@ function bindSearch(inp, res) {
 }
 
 function showSheet(html) {
+  stopScanner();
   const s = $('#sheet');
   s.innerHTML = `<div class="backdrop" data-act="closeSheet"></div><div class="panel" role="dialog"><div class="grab"></div>${html}</div>`;
   s.classList.remove('hidden');
   document.body.classList.add('noscroll');
 }
 function closeSheet() {
+  stopScanner();
   $('#sheet').classList.add('hidden');
   $('#sheet').innerHTML = '';
   document.body.classList.remove('noscroll');
   sheet = null;
 }
 const closeBtn = `<button class="iconbtn" data-act="closeSheet" aria-label="Schließen"><i class="ti ti-x"></i></button>`;
+const scanBtn = `<button class="iconbtn" data-act="scan" aria-label="Barcode scannen"><i class="ti ti-barcode"></i></button>`;
+
+/* ---------- Barcode ---------- */
+let scanner = null;
+function stopScanner() {
+  const s = scanner; scanner = null;
+  if (s) s.stop().then(() => s.clear()).catch(() => {});
+}
+function loadScanLib() {
+  if (window.Html5Qrcode) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+async function openScan(meal) {
+  sheet = { mode: 'scan', meal, from: !!sheet };
+  showSheet(`<div class="shead">
+      ${sheet.from ? `<button class="iconbtn" data-act="back" aria-label="Zurück"><i class="ti ti-chevron-left"></i></button>` : ''}
+      <h2 class="grow">Barcode scannen</h2>${closeBtn}</div>
+    <div id="reader" class="reader"></div>
+    <p id="scmsg" class="note">Kamera wird gestartet …</p>
+    <div class="codein"><input id="code" inputmode="numeric" placeholder="Oder Nummer eintippen" autocomplete="off" aria-label="Barcode-Nummer">
+      <button class="secondary" data-act="lookup">Suchen</button></div>
+    <div id="scres"></div>`);
+  try {
+    await loadScanLib();
+    if (!sheet || sheet.mode !== 'scan') return;
+    const F = Html5QrcodeSupportedFormats;
+    const s = new Html5Qrcode('reader', { formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E], verbose: false,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
+    await s.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 260, height: 130 } },
+      text => { stopScanner(); $('#code').value = text; lookup(text); }, () => {});
+    if (!sheet || sheet.mode !== 'scan') { s.stop().catch(() => {}); return; }
+    scanner = s;
+    $('#scmsg').textContent = 'Halte den Strichcode in den Rahmen.';
+  } catch (e) {
+    const m = $('#scmsg');
+    if (m) m.textContent = 'Kamera nicht verfügbar. Erlaube den Kamerazugriff oder tippe die Nummer unter dem Strichcode ein.';
+    const r = $('#reader'); if (r) r.classList.add('hidden');
+  }
+}
+const mg = v => v == null || v === '' ? 0 : Math.round(Number(v) * 1000 * 10) / 10; // g -> mg
+function mapOff(code, p) {
+  const n = p.nutriments || {};
+  let kcal = n['energy-kcal_100g'];
+  if (kcal == null && n.energy_100g != null) kcal = n.energy_100g / 4.184;
+  if (kcal == null) return null;
+  const brand = (p.brands || '').split(',')[0].trim();
+  let name = (p.product_name_de || p.product_name || 'Unbekanntes Produkt').trim();
+  if (brand && !norm(name).includes(norm(brand))) name += ` (${brand})`;
+  const u = [];
+  if (p.serving_quantity > 0) u.push(['Portion', +p.serving_quantity]);
+  if (p.product_quantity > 0) u.push(['Packung', +p.product_quantity]);
+  return { id: 'o' + code, code, name, src: 'off', custom: true, u,
+    ml: /\d\s*(ml|cl|l)\b/i.test(p.quantity || ''),
+    n: { kcal: Math.round(kcal), p: +n.proteins_100g || 0, c: +n.carbohydrates_100g || 0, f: +n.fat_100g || 0,
+      fib: +n.fiber_100g || 0, fe: mg(n.iron_100g), ca: mg(n.calcium_100g), zn: mg(n.zinc_100g) } };
+}
+async function lookup(code) {
+  code = String(code || '').replace(/\D/g, '');
+  const out = $('#scres'); if (!out) return;
+  if (!/^\d{8,14}$/.test(code)) { out.innerHTML = '<p class="err">Ein Barcode hat 8 bis 14 Ziffern.</p>'; return; }
+  const known = S.custom.find(f => f.code === code);
+  if (known) { const meal = sheet.meal; sheet = { mode: 'scan' }; openAmount(known, meal); return; }
+  out.innerHTML = '<p class="note">Suche bei Open Food Facts …</p>';
+  try {
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 12000);
+    const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,product_name_de,brands,nutriments,serving_quantity,serving_size,quantity,product_quantity`, { signal: ctrl.signal });
+    clearTimeout(t);
+    const j = r.status === 404 ? {} : await r.json();
+    const food = j.product && mapOff(code, j.product);
+    if (!sheet || sheet.mode !== 'scan') return;
+    if (!food) {
+      sheet.code = code;
+      out.innerHTML = `<p class="note">${j.product ? 'Das Produkt ist bekannt, aber ohne Nährwerte.' : 'Dieses Produkt ist noch nicht in Open Food Facts.'} Du kannst es mit den Werten von der Packung selbst anlegen.</p>
+        <button class="primary" data-act="newFood">Selbst anlegen</button>`;
+      return;
+    }
+    S.custom.push(food); save();
+    const meal = sheet.meal; sheet = { mode: 'scan' };
+    openAmount(food, meal);
+  } catch (e) {
+    if (out.isConnected) out.innerHTML = '<p class="err">Keine Verbindung. Prüf dein Internet und versuch es nochmal.</p>';
+  }
+}
 
 function openSearch(meal) {
   sheet = { mode: 'search', meal };
   showSheet(`<div class="shead"><h2 class="grow">${mealName(meal)}</h2>${closeBtn}</div>
-    <div class="search"><i class="ti ti-search"></i><input id="sq" type="search" placeholder="Lebensmittel suchen" autocomplete="off"></div>
+    <div class="search"><i class="ti ti-search"></i><input id="sq" type="search" placeholder="Lebensmittel suchen" autocomplete="off">${scanBtn}</div>
     <div id="sres"></div>`);
   bindSearch($('#sq'), $('#sres'));
 }
@@ -287,7 +377,7 @@ function openAmount(food, meal) {
   if (!food) return;
   const base = food.ml ? 'ml' : 'g';
   const units = [[base, 1]].concat(food.u);
-  sheet = { mode: 'amount', food, meal, units, from: sheet && sheet.mode === 'search' };
+  sheet = { mode: 'amount', food, meal, units, from: !!sheet && (sheet.mode === 'search' || sheet.mode === 'scan') };
   const ui = food.u.length ? 1 : 0;
   showSheet(`<div class="shead">
       ${sheet.from ? `<button class="iconbtn" data-act="back" aria-label="Zurück"><i class="ti ti-chevron-left"></i></button>` : ''}
@@ -314,8 +404,8 @@ function amountGrams() {
 }
 
 function openNewFood() {
-  const meal = sheet ? sheet.meal : autoMeal();
-  sheet = { mode: 'new', meal };
+  const meal = sheet && sheet.meal ? sheet.meal : autoMeal(), code = sheet && sheet.code;
+  sheet = { mode: 'new', meal, code };
   const f = (id, lbl, ph) => `<label class="field">${lbl}<input id="${id}" inputmode="decimal" placeholder="${ph}"></label>`;
   showSheet(`<div class="shead"><h2 class="grow">Eigenes Lebensmittel</h2>${closeBtn}</div>
     <label class="field">Name<input id="nf-name" placeholder="Mein Lieblingsmüsli" autocomplete="off"></label>
@@ -344,6 +434,8 @@ const ACT = {
   },
   pick: el => openAmount(findFood(el.dataset.id), sheet ? sheet.meal : autoMeal()),
   back: () => openSearch(sheet.meal),
+  scan: () => openScan(sheet && sheet.meal ? sheet.meal : autoMeal()),
+  lookup: () => lookup($('#code').value),
   setMeal: el => {
     sheet.meal = el.dataset.k;
     document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.k === sheet.meal));
@@ -373,6 +465,7 @@ const ACT = {
     const food = { id: 'c' + uid(), name, custom: true, ml: $('#nf-ml').checked,
       n: { kcal: v('nf-kcal'), p: v('nf-p') || 0, c: v('nf-c') || 0, f: v('nf-f') || 0, fib: v('nf-fib') || 0, fe: 0, ca: 0, zn: 0 },
       u: pn && pg > 0 ? [[pn, pg]] : [] };
+    if (sheet.code) food.code = sheet.code;
     S.custom.push(food); save();
     const meal = sheet.meal; sheet = null;
     openAmount(food, meal);
@@ -435,6 +528,7 @@ document.addEventListener('change', e => {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id === 'aq') ACT.confirmAdd();
+  if (e.key === 'Enter' && e.target.id === 'code') ACT.lookup();
   if (e.key === 'Escape' && sheet) closeSheet();
 });
 

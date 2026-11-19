@@ -1,5 +1,5 @@
 // Offline-Cache. Bei jedem Update die Versionsnummer erhöhen.
-const CACHE = 'lavendel-v1';
+const CACHE = 'lavendel-v2';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'foods.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
