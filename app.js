@@ -2,7 +2,7 @@
 
 /* ---------- Grundlagen ---------- */
 const KEY = 'lavendel-v1';
-const VERSION = 3;
+const VERSION = 4;
 const MEALS = [
   { k: 'fr', n: 'Frühstück', i: 'ti-coffee' },
   { k: 'mi', n: 'Mittagessen', i: 'ti-salad' },
@@ -53,6 +53,8 @@ let tab = 'heute';
 let cur = today();
 let sheet = null;
 const openMeals = new Set();
+const openDays = new Set();
+const medTime = v => typeof v === 'string' ? v : ''; // ältere Einträge haben nur "true"
 
 function day(k, create) {
   if (S.days[k]) return S.days[k];
@@ -117,7 +119,8 @@ function vHeute() {
 
   const done = S.medis.filter(m => d.medis[m.id]).length;
   const medis = S.medis.length
-    ? S.medis.map(m => `<button class="med${d.medis[m.id] ? ' done' : ''}" data-act="med" data-id="${m.id}"><span class="ck${d.medis[m.id] ? ' on' : ''}"><i class="ti ti-check"></i></span><span class="grow">${esc(m.name)}</span><small>${esc(m.time)}</small></button>`).join('')
+    ? S.medis.map(m => { const v = d.medis[m.id], tm = medTime(v);
+        return `<button class="med${v ? ' done' : ''}" data-act="med" data-id="${m.id}"><span class="ck${v ? ' on' : ''}"><i class="ti ti-check"></i></span><span class="grow"><span class="mn">${esc(m.name)}</span>${tm ? `<small class="mt">genommen um ${tm} Uhr</small>` : ''}</span><small>${esc(m.time)}</small></button>`; }).join('')
     : `<p class="note">Noch keine Medis. Du kannst sie im Profil anlegen.</p>`;
 
   const meals = MEALS.map(m => {
@@ -183,7 +186,9 @@ function vAuswertung() {
   const d = day(cur), t = totals(d), g = goals(), m = S.profile.sex === 'm';
   const ekcal = t.p * 4 + t.c * 4 + t.f * 9 || 1;
   const row = (lbl, v, goal, unit, col) => `<div class="nrow"><div class="lbl"><span>${lbl}</span><span>${fmt(v, v >= 100 ? 0 : 1)} / ${fmt(goal)} ${unit}</span></div><div class="bar"><i style="width:${Math.min(v / goal * 100, 100)}%;background:${col}"></i></div></div>`;
-  return `<div class="top"><h1>Auswertung</h1><small>${dateLabel(cur)}</small></div>
+  return `<h1>Auswertung</h1>
+  ${vWoche()}
+  <h2 style="margin:22px 0 0">${dateLabel(cur)} im Detail</h2>
   <div class="card"><h3>Energie und Makros</h3>
     ${row('Kalorien', t.kcal, g.kcal, 'kcal', '#AFA9EC')}
     ${row('Protein', t.p, g.p, 'g', '#7F77DD')}${row('Kohlenhydrate', t.c, g.c, 'g', '#ED93B1')}${row('Fett', t.f, g.f, 'g', '#5DCAA5')}
@@ -196,6 +201,42 @@ function vAuswertung() {
     ${row('Zink', t.zn, m ? 16 : 10, 'mg', '#7F77DD')}
     <p class="note">Richtwerte orientiert an der DGE, beim Zink schon an pflanzliche Ernährung angepasst. B12, Jod, Vitamin D und Omega-3 kommen mit der großen Datenbank dazu. Bei eigenen und gescannten Produkten fehlen Mineralstoffe oft, weil sie nicht auf der Packung stehen.</p>
   </div>`;
+}
+
+function vWoche() {
+  const g = goals(), t0 = today(), list = [];
+  for (let i = 0; i < 7; i++) { const d = new Date(); d.setDate(d.getDate() - i); const k = iso(d); list.push({ k, d: day(k), t: totals(day(k)) }); }
+  const max = Math.max(g.kcal, ...list.map(x => x.t.kcal)) * 1.08;
+  const wd = k => new Date(k + 'T12:00').toLocaleDateString('de-DE', { weekday: 'short' }).replace('.', '');
+  const short = k => new Date(k + 'T12:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' });
+
+  const chart = list.slice().reverse().map(x => `<button class="wcol${x.k === cur ? ' sel' : ''}" data-act="pickDay" data-k="${x.k}" aria-label="${dateLabel(x.k)}: ${fmt(x.t.kcal)} kcal">
+      <div class="wbox"><div class="wbar${x.t.kcal > g.kcal ? ' over' : x.k === t0 ? ' today' : ''}" style="height:${x.t.kcal / max * 100}%"></div></div>${wd(x.k)}</button>`).join('');
+
+  const rows = list.map(x => {
+    const isOpen = openDays.has(x.k), has = x.t.kcal > 0 || x.d.water > 0 || Object.keys(x.d.medis).length;
+    let body = '';
+    if (isOpen) {
+      const meals = MEALS.filter(m => (x.d.meals[m.k] || []).length).map(m => `<div class="dmeal"><div><span>${m.n}</span><span>${fmt(mealKcal(x.d, m.k))} kcal</span></div>
+        ${x.d.meals[m.k].map(it => `<div class="ditem"><span>${esc(it.name)}</span><span>${fmt(it.g)} ${it.ml ? 'ml' : 'g'} · ${fmt(it.n.kcal * it.g / 100)} kcal</span></div>`).join('')}</div>`).join('');
+      const medis = S.medis.filter(m => x.d.medis[m.id]).map(m => esc(m.name) + (medTime(x.d.medis[m.id]) ? ` (${medTime(x.d.medis[m.id])})` : '')).join(', ');
+      body = `<div class="dbody">${meals || '<p class="note" style="margin:0">Keine Mahlzeiten eingetragen.</p>'}
+        <div class="dextra"><i class="ti ti-droplet"></i> ${fmt(x.d.water * S.bottle, 2)} l · <i class="ti ti-pill"></i> ${medis || 'keine Medis abgehakt'}</div>
+        <div class="dextra">Protein ${fmt(x.t.p)} g · KH ${fmt(x.t.c)} g · Fett ${fmt(x.t.f)} g</div>
+        <button class="secondary" data-act="gotoDay" data-k="${x.k}" style="margin-top:10px"><i class="ti ti-edit"></i> Tag bearbeiten</button></div>`;
+    }
+    return `<div class="drow"><button class="dhead" data-act="toggleDay" data-k="${x.k}" aria-expanded="${isOpen}">
+      <span class="grow"><b>${dateLabel(x.k)}</b> ${/^(Heute|Gestern)$/.test(dateLabel(x.k)) ? `<small>${short(x.k)}</small>` : ''}</span>
+      <span class="kc">${has ? `${fmt(x.t.kcal)} kcal` : '<small>leer</small>'}</span><i class="ti ti-chevron-${isOpen ? 'up' : 'down'} chev"></i></button>${body}</div>`;
+  }).join('');
+
+  const filled = list.filter(x => x.t.kcal > 0);
+  const avg = filled.length ? filled.reduce((s, x) => s + x.t.kcal, 0) / filled.length : 0;
+  return `<div class="card"><div class="chead"><span>Letzte 7 Tage</span><span class="val">${filled.length ? `Ø ${fmt(avg)} kcal` : ''}</span></div>
+    <div class="wchart"><div class="wgoal" style="top:${(1 - g.kcal / max) * 110}px"></div>${chart}</div>
+    <small>Gestrichelt: dein Ziel von ${fmt(g.kcal)} kcal. Tipp auf einen Balken für die Details darunter.</small>
+  </div>
+  <div class="card" style="padding-top:4px;padding-bottom:4px">${rows}</div>`;
 }
 
 function vProfil() {
@@ -425,7 +466,15 @@ const ACT = {
   shift: el => { const d = new Date(cur + 'T12:00'); d.setDate(d.getDate() + +el.dataset.n); cur = iso(d); render(); },
   today: () => { cur = today(); render(); },
   water: el => { const d = day(cur, true), i = +el.dataset.i; d.water = d.water === i + 1 ? i : i + 1; save(); render(); },
-  med: el => { const d = day(cur, true), id = el.dataset.id; d.medis[id] = !d.medis[id]; save(); render(); },
+  med: el => {
+    const d = day(cur, true), id = el.dataset.id;
+    if (d.medis[id]) delete d.medis[id];
+    else d.medis[id] = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    save(); render();
+  },
+  pickDay: el => { cur = el.dataset.k; render(); },
+  toggleDay: el => { const k = el.dataset.k; openDays.has(k) ? openDays.delete(k) : openDays.add(k); render(); },
+  gotoDay: el => { cur = el.dataset.k; tab = 'heute'; render(); window.scrollTo(0, 0); },
   toggleMedis: () => { S.ui.medisOpen = !S.ui.medisOpen; save(); render(); },
   toggleMeal: el => { const k = el.dataset.k; openMeals.has(k) ? openMeals.delete(k) : openMeals.add(k); render(); },
   add: el => openSearch(el.dataset.k),
