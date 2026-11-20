@@ -2,7 +2,7 @@
 
 /* ---------- Grundlagen ---------- */
 const KEY = 'lavendel-v1';
-const VERSION = 6;
+const VERSION = 7;
 const MEALS = [
   { k: 'fr', n: 'Frühstück', i: 'ti-coffee' },
   { k: 'mi', n: 'Mittagessen', i: 'ti-salad' },
@@ -19,7 +19,12 @@ const BASE = RAW_FOODS.map(r => ({
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = (n, d = 0) => Number(n || 0).toLocaleString('de-DE', { maximumFractionDigits: d });
-const num = v => parseFloat(String(v).replace(',', '.'));
+const num = v => {
+  let s = String(v).trim();
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, ''); // "2.360" = 2360
+  return parseFloat(s.replace(',', '.'));
+};
+const fv = n => String(Math.round(Number(n || 0) * 100) / 100).replace('.', ','); // Zahl für Eingabefelder, ohne Tausenderpunkt
 const iso = d => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
 const today = () => iso(new Date());
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -30,7 +35,7 @@ function defState() {
     profile: { sex: 'w', age: 30, height: 170, weight: 65, act: 1.55, goal: 0 },
     goals: null, waterGoal: 3, bottle: 0.75, setup: false,
     medis: [{ id: 'm1', name: 'Vitamin B12', time: 'morgens' }, { id: 'm2', name: 'Vitamin D3', time: 'morgens' }],
-    custom: [], recipes: [], recent: [], days: {}, ui: { medisOpen: true },
+    custom: [], recipes: [], recent: [], lastAmt: {}, days: {}, ui: { medisOpen: true },
   };
 }
 function load() {
@@ -81,12 +86,19 @@ const findFood = id => allFoods().find(f => f.id === id);
 function suggest(p) {
   const bmr = 10 * p.weight + 6.25 * p.height - 5 * p.age + (p.sex === 'm' ? 5 : -161);
   const kcal = Math.round((bmr * p.act + Number(p.goal)) / 10) * 10;
-  const pr = Math.round(p.weight * 1.2);
+  // Pflanzliches Protein wird etwas schlechter verwertet, daher großzügiger: Halten 1,4 / Abnehmen 1,6 / Aufbau 1,7 g pro kg
+  const pr = Math.round(p.weight * (p.goal < 0 ? 1.6 : p.goal > 0 ? 1.7 : 1.4));
   const f = Math.round(kcal * 0.3 / 9);
   const c = Math.max(0, Math.round((kcal - pr * 4 - f * 9) / 4));
   return { kcal, p: pr, c, f };
 }
-const goals = () => S.goals || suggest(S.profile);
+// Eigene Ziele: Kalorien, Protein und Fett fest, Kohlenhydrate füllen den Rest auf
+const carbRest = g => Math.round((g.kcal - g.p * 4 - g.f * 9) / 4);
+const goals = () => {
+  if (!S.goals) return suggest(S.profile);
+  const { kcal, p, f } = S.goals;
+  return { kcal, p, f, c: Math.max(0, carbRest(S.goals)) };
+};
 
 function totals(d) {
   const t = { kcal: 0, p: 0, c: 0, f: 0, fib: 0, fe: 0, ca: 0, zn: 0 };
@@ -235,14 +247,14 @@ function vRezeptView(r) {
 function vRezeptEdit() {
   const d = recipeView.draft, { t } = recipeTotals(d.items);
   const rows = d.items.map((it, i) => `<div class="ingrow"><span class="grow">${esc(it.name)}<small>${fmt(it.n.kcal * it.g / 100)} kcal</small></span>
-      <input class="gin" data-ri="${i}" inputmode="decimal" value="${fmt(it.g, 1)}" aria-label="Menge ${esc(it.name)}"><span class="unit">${it.ml ? 'ml' : 'g'}</span>
+      <input class="gin" data-ri="${i}" inputmode="decimal" value="${fv(it.g)}" aria-label="Menge ${esc(it.name)}"><span class="unit">${it.ml ? 'ml' : 'g'}</span>
       <button class="del" data-act="delIng" data-ri="${i}" aria-label="${esc(it.name)} entfernen"><i class="ti ti-x"></i></button></div>`).join('');
   return `<div class="top">
       <button class="iconbtn" data-act="cancelEdit" aria-label="Abbrechen"><i class="ti ti-chevron-left"></i></button>
       <h1 class="grow" style="margin:4px 0">${d.id ? 'Rezept bearbeiten' : 'Neues Rezept'}</h1></div>
     <div class="card">
       <label class="field">Name<input data-draft="name" value="${esc(d.name)}" placeholder="Linsencurry" autocomplete="off"></label>
-      <label class="field">Das Rezept ergibt (Portionen)<input data-draft="servings" inputmode="decimal" value="${fmt(d.servings, 1)}"></label>
+      <label class="field">Das Rezept ergibt (Portionen)<input data-draft="servings" inputmode="decimal" value="${fv(d.servings)}"></label>
     </div>
     <div class="card"><div class="chead"><span>Zutaten</span><span class="val">${fmt(t.kcal)} kcal gesamt</span></div>
       ${rows || '<p class="note">Noch keine Zutaten.</p>'}
@@ -315,7 +327,7 @@ function vWoche() {
 function vProfil() {
   const p = S.profile, s = suggest(p), g = goals(), own = !!S.goals;
   const opt = (val, lbl, sel) => `<option value="${val}"${String(sel) === String(val) ? ' selected' : ''}>${lbl}</option>`;
-  const inp = (bind, lbl, val, unit) => `<label class="field">${lbl}${unit ? ` (${unit})` : ''}<input data-bind="${bind}" inputmode="decimal" value="${fmt(val, 2)}"></label>`;
+  const inp = (bind, lbl, val, unit) => `<label class="field">${lbl}${unit ? ` (${unit})` : ''}<input data-bind="${bind}" inputmode="decimal" value="${fv(val)}"></label>`;
   return `<h1>Profil</h1>
   <div class="card"><h3>Über dich</h3>
     <div class="grid2">
@@ -333,7 +345,10 @@ function vProfil() {
 
   <div class="card"><h3>Deine Ziele</h3>
     <label class="switch"><input type="checkbox" id="ownGoals"${own ? ' checked' : ''}> Ziele selbst festlegen</label>
-    ${own ? `<div class="grid2">${inp('goals.kcal', 'Kalorien', g.kcal, 'kcal')}${inp('goals.p', 'Protein', g.p, 'g')}${inp('goals.c', 'Kohlenhydrate', g.c, 'g')}${inp('goals.f', 'Fett', g.f, 'g')}</div>`
+    ${own ? `${inp('goals.kcal', 'Kalorien', g.kcal, 'kcal')}<div class="grid2">${inp('goals.p', 'Protein', g.p, 'g')}${inp('goals.f', 'Fett', g.f, 'g')}</div>
+      ${carbRest(S.goals) < 0
+        ? `<p class="err" style="margin:0">Protein und Fett ergeben schon mehr Kalorien als dein Ziel. Erhöh die Kalorien oder senk Protein bzw. Fett.</p>`
+        : `<div class="sugg">Kohlenhydrate: <b>${g.c} g</b>, die füllen automatisch den Rest auf.<br>Verteilung: ${fmt(g.p * 4 / g.kcal * 100)} % Protein · ${fmt(g.c * 4 / g.kcal * 100)} % Kohlenhydrate · ${fmt(g.f * 9 / g.kcal * 100)} % Fett</div>`}`
           : `<p class="note" style="margin:0">Es gilt der Vorschlag von oben. Er passt sich an, wenn du deine Daten änderst.</p>`}
   </div>
 
@@ -495,11 +510,14 @@ function openAmount(food, meal) {
   const base = food.ml ? 'ml' : 'g';
   const units = [[base, 1]].concat(food.u);
   sheet = { mode: 'amount', food, meal, units, from: !!sheet && (sheet.mode === 'search' || sheet.mode === 'scan') };
-  const ui = food.u.length ? 1 : 0;
+  // Zuletzt gewählte Menge und Einheit vorauswählen, sonst 1 Portion bzw. 100 g
+  const last = (S.lastAmt || {})[food.id], useLast = last && last.ui < units.length && last.q > 0;
+  const ui = useLast ? last.ui : food.u.length ? 1 : 0;
+  const q0 = useLast ? last.q : ui ? 1 : 100;
   showSheet(`<div class="shead">
       ${sheet.from ? `<button class="iconbtn" data-act="back" aria-label="Zurück"><i class="ti ti-chevron-left"></i></button>` : ''}
       <h2 class="grow">${esc(food.name)}</h2>${closeBtn}</div>
-    <div class="amt"><input id="aq" inputmode="decimal" value="${ui ? 1 : 100}" aria-label="Menge">
+    <div class="amt"><input id="aq" inputmode="decimal" value="${fv(q0)}" aria-label="Menge">
       <select id="au" aria-label="Einheit">${units.map((u, i) => `<option value="${i}"${i === ui ? ' selected' : ''}>${esc(u[0])}${i ? ` (${fmt(u[1])} ${base})` : ''}</option>`).join('')}</select></div>
     <p id="aerr" class="err hidden">Gib eine Menge größer als 0 ein.</p>
     ${addTarget === 'recipe' ? '<div style="height:12px"></div>' : `<div class="chips">${MEALS.map(m => `<button class="chip${m.k === meal ? ' on' : ''}" data-act="setMeal" data-k="${m.k}">${m.n}</button>`).join('')}</div>`}
@@ -604,7 +622,9 @@ const ACT = {
     const g = amountGrams();
     if (!(g > 0)) { $('#aerr').classList.remove('hidden'); return; }
     const { food, meal, units } = sheet, ui = +$('#au').value;
-    S.recent = [food.id].concat(S.recent.filter(id => id !== food.id)).slice(0, 12);
+    S.lastAmt = S.lastAmt || {};
+    S.lastAmt[food.id] = { q: num($('#aq').value), ui };
+    S.recent =[food.id].concat(S.recent.filter(id => id !== food.id)).slice(0, 12);
     if (addTarget === 'recipe' && recipeView && recipeView.mode === 'edit') {
       recipeView.draft.items.push({ id: uid(), fid: food.id, name: food.name, g: Math.round(g * 10) / 10, n: { ...food.n }, ml: food.ml });
       save(); closeSheet(); render(); toast('Zutat hinzugefügt');
