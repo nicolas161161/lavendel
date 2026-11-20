@@ -57,3 +57,17 @@ const RAW_FOODS = [
   ['rapsoel', 'Rapsöl', 884, 0, 0, 100, 0, 0, 0, 0, [['EL', 10], ['TL', 4]], true],
   ['zartbitter', 'Zartbitterschokolade 70 %', 598, 7.8, 35.0, 43.0, 11.0, 11.9, 73, 3.3, [['Rippe', 10]]],
 ];
+
+// Startliste -> Eintrag in der Schweizer Nährwertdatenbank (foods-db.js).
+// Die Startliste behält Namen und Portionen, übernimmt aber alle Nährwerte aus der Datenbank.
+const BASE_MAP = {
+  hafer: 's198', tofu: 's13437', 'tofu-r': 's14090', tempeh: 's14251', seitan: 's14118', 'soja-gran': 's14147',
+  'linsen-rot': 's13385', 'linsen-gek': 's1060', kichererbsen: 's1059', kidney: 's13388', 'schwarze-bohnen': 's13388',
+  edamame: 's14160', erbsen: 's14219', hummus: 's14055', sojadrink: 's14129', haferdrink: 's14130', sojajoghurt: 's13452',
+  vollkornbrot: 's821', broetchen: 's1463', nudeln: 's800', 'vk-nudeln': 's801', reis: 's427', 'vk-reis': 's428',
+  quinoa: 's13394', kartoffel: 's813', suesskartoffel: 's13406', brokkoli: 's351', spinat: 's365', gruenkohl: 's13400',
+  paprika: 's360', tomate: 's348', gurke: 's354', moehre: 's355', zwiebel: 's368', zucchini: 's367', champignons: 's375',
+  banane: 's381', apfel: 's378', orange: 's405', heidelbeeren: 's389', avocado: 's380', mandeln: 's273', walnuesse: 's271',
+  cashews: 's275', erdnussmus: 's751', tahin: 's408', chia: 's13457', leinsamen: 's277', kuerbiskerne: 's276',
+  sonnenblumenkerne: 's281', olivenoel: 's591', rapsoel: 's600', zartbitter: 's196',
+};

@@ -2,7 +2,7 @@
 
 /* ---------- Grundlagen ---------- */
 const KEY = 'lavendel-v1';
-const VERSION = 7;
+const VERSION = 8;
 const MEALS = [
   { k: 'fr', n: 'Frühstück', i: 'ti-coffee' },
   { k: 'mi', n: 'Mittagessen', i: 'ti-salad' },
@@ -10,11 +10,29 @@ const MEALS = [
   { k: 'sn', n: 'Snacks', i: 'ti-cookie' },
 ];
 const TIMES = ['morgens', 'mittags', 'abends', 'zur Nacht', 'bei Bedarf'];
-const BASE = RAW_FOODS.map(r => ({
-  id: r[0], name: r[1],
-  n: { kcal: r[2], p: r[3], c: r[4], f: r[5], fib: r[6], fe: r[7], ca: r[8], zn: r[9] },
-  u: r[10] || [], ml: !!r[11],
-}));
+const sortedMedis = () => S.medis.slice().sort((a, b) => (TIMES.indexOf(a.time) + 1 || 99) - (TIMES.indexOf(b.time) + 1 || 99));
+// Alle Nährstoffe, die die App kennt (dha = Omega-3 DHA/EPA, kommt nur aus Supplements)
+const NUTS = ['kcal', 'p', 'c', 'f', 'fib', 'fe', 'ca', 'zn', 'b12', 'd', 'jod', 'se', 'mg', 'fol', 'ala', 'b2', 'dha'];
+const SUPP_NUTS = [['b12', 'Vitamin B12', 'µg'], ['d', 'Vitamin D', 'µg'], ['jod', 'Jod', 'µg'], ['dha', 'Omega-3 DHA/EPA', 'mg'],
+  ['fe', 'Eisen', 'mg'], ['zn', 'Zink', 'mg'], ['ca', 'Calcium', 'mg'], ['se', 'Selen', 'µg'], ['mg', 'Magnesium', 'mg']];
+
+// Schweizer Nährwertdatenbank (foods-db.js)
+const DB = DB_FOODS.map(r => {
+  const n = {};
+  DB_KEYS.forEach((k, i) => { if (r[4 + i] != null) n[k] = r[4 + i]; });
+  return { id: r[0], name: r[1], cat: r[2], s: r[3], n, u: [], db: true, ml: /getränk|säfte|kaffee|\btee\b|trinkwasser/i.test(r[2]) };
+});
+const DB_BY_ID = Object.fromEntries(DB.map(f => [f.id, f]));
+const MAPPED = new Set(Object.values(BASE_MAP));
+const DB_SHOWN = DB.filter(f => !MAPPED.has(f.id)); // Einträge der Startliste nicht doppelt zeigen
+
+// Startliste: eigene Namen und Portionen, Nährwerte aus der Datenbank (falls zugeordnet)
+const BASE = RAW_FOODS.map(r => {
+  const own = { kcal: r[2], p: r[3], c: r[4], f: r[5], fib: r[6], fe: r[7], ca: r[8], zn: r[9] };
+  const sw = DB_BY_ID[BASE_MAP[r[0]]];
+  return { id: r[0], name: r[1], n: sw ? { ...own, ...sw.n } : own, u: r[10] || [], ml: !!r[11], starter: true,
+    s: sw ? `${sw.name} ${sw.s}` : '' };
+});
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -59,6 +77,7 @@ let cur = today();
 let sheet = null;
 const openMeals = new Set();
 const openDays = new Set();
+let editMedi = null; // id des Medis, das im Profil gerade bearbeitet wird
 const medTime = v => typeof v === 'string' ? v : ''; // ältere Einträge haben nur "true"
 
 function day(k, create) {
@@ -71,7 +90,7 @@ let recipeView = null; // null = Liste | { mode: 'view', id, scale } | { mode: '
 let addTarget = 'meal'; // 'meal' oder 'recipe' (Zutat für den Rezept-Editor)
 
 function recipeTotals(items) {
-  const t = { kcal: 0, p: 0, c: 0, f: 0, fib: 0, fe: 0, ca: 0, zn: 0 }; let g = 0;
+  const t = Object.fromEntries(NUTS.map(k => [k, 0])); let g = 0;
   for (const it of items) { g += it.g; for (const k in t) t[k] += (it.n[k] || 0) * it.g / 100; }
   return { t, g };
 }
@@ -80,7 +99,7 @@ function recipeFood(r) {
   for (const k in t) n[k] = g ? Math.round(t[k] / g * 100 * 100) / 100 : 0;
   return { id: 'r' + r.id, name: r.name, recipe: true, n, ml: false, u: [['Portion', Math.round(g / r.servings) || 1]] };
 }
-const allFoods = () => BASE.concat(S.custom, S.recipes.map(recipeFood));
+const allFoods = () => BASE.concat(S.custom, S.recipes.map(recipeFood), DB_SHOWN);
 const findFood = id => allFoods().find(f => f.id === id);
 
 function suggest(p) {
@@ -101,7 +120,7 @@ const goals = () => {
 };
 
 function totals(d) {
-  const t = { kcal: 0, p: 0, c: 0, f: 0, fib: 0, fe: 0, ca: 0, zn: 0 };
+  const t = Object.fromEntries(NUTS.map(k => [k, 0]));
   for (const m of MEALS) for (const it of d.meals[m.k] || []) for (const k in t) t[k] += (it.n[k] || 0) * it.g / 100;
   return t;
 }
@@ -144,7 +163,7 @@ function vHeute() {
 
   const done = S.medis.filter(m => d.medis[m.id]).length;
   const medis = S.medis.length
-    ? S.medis.map(m => { const v = d.medis[m.id], tm = medTime(v);
+    ? sortedMedis().map(m => { const v = d.medis[m.id], tm = medTime(v);
         return `<button class="med${v ? ' done' : ''}" data-act="med" data-id="${m.id}"><span class="ck${v ? ' on' : ''}"><i class="ti ti-check"></i></span><span class="grow"><span class="mn">${esc(m.name)}</span>${tm ? `<small class="mt">genommen um ${tm} Uhr</small>` : ''}</span><small>${esc(m.time)}</small></button>`; }).join('')
     : `<p class="note">Noch keine Medis. Du kannst sie im Profil anlegen.</p>`;
 
@@ -270,7 +289,14 @@ function vRezeptEdit() {
 function vAuswertung() {
   const d = day(cur), t = totals(d), g = goals(), m = S.profile.sex === 'm';
   const ekcal = t.p * 4 + t.c * 4 + t.f * 9 || 1;
-  const row = (lbl, v, goal, unit, col) => `<div class="nrow"><div class="lbl"><span>${lbl}</span><span>${fmt(v, v >= 100 ? 0 : 1)} / ${fmt(goal)} ${unit}</span></div><div class="bar"><i style="width:${Math.min(v / goal * 100, 100)}%;background:${col}"></i></div></div>`;
+  const prec = v => v >= 100 ? 0 : v >= 10 ? 1 : 2;
+  const row = (lbl, v, goal, unit, col) => `<div class="nrow"><div class="lbl"><span>${lbl}</span><span>${fmt(v, prec(v))} / ${fmt(goal, prec(goal))} ${unit}</span></div><div class="bar"><i style="width:${Math.min(v / goal * 100, 100)}%;background:${col}"></i></div></div>`;
+  // Nährstoffe aus Essen plus abgehakte Supplements
+  const n = { ...t }, fromSupp = {};
+  for (const md of S.medis) if (md.nut && md.amt > 0 && d.medis[md.id]) { n[md.nut] = (n[md.nut] || 0) + md.amt; fromSupp[md.nut] = true; }
+  const nrow = (k, lbl, goal, unit) => row(lbl + (fromSupp[k] ? ' <i class="ti ti-pill" style="color:var(--l400)" title="inkl. Supplement"></i>' : ''),
+    n[k] || 0, goal, unit, (n[k] || 0) >= goal ? '#5DCAA5' : '#AFA9EC');
+  const ala = Math.round(g.kcal * 0.005 / 9 * 10) / 10; // 0,5 % der Energie
   return `<h1>Auswertung</h1>
   ${vWoche()}
   <h2 style="margin:22px 0 0">${dateLabel(cur)} im Detail</h2>
@@ -279,12 +305,16 @@ function vAuswertung() {
     ${row('Protein', t.p, g.p, 'g', '#7F77DD')}${row('Kohlenhydrate', t.c, g.c, 'g', '#ED93B1')}${row('Fett', t.f, g.f, 'g', '#5DCAA5')}
     <p class="note">Energieverteilung: ${fmt(t.p * 4 / ekcal * 100)} % Protein · ${fmt(t.c * 4 / ekcal * 100)} % Kohlenhydrate · ${fmt(t.f * 9 / ekcal * 100)} % Fett</p>
   </div>
-  <div class="card"><h3>Nährstoffe</h3>
-    ${row('Ballaststoffe', t.fib, 30, 'g', '#5DCAA5')}
-    ${row('Eisen', t.fe, m ? 11 : 15, 'mg', '#7F77DD')}
-    ${row('Calcium', t.ca, 1000, 'mg', '#7F77DD')}
-    ${row('Zink', t.zn, m ? 16 : 10, 'mg', '#7F77DD')}
-    <p class="note">Richtwerte orientiert an der DGE, beim Zink schon an pflanzliche Ernährung angepasst. B12, Jod, Vitamin D und Omega-3 kommen mit der großen Datenbank dazu. Bei eigenen und gescannten Produkten fehlen Mineralstoffe oft, weil sie nicht auf der Packung stehen.</p>
+  <div class="card"><h3>Kritisch bei veganer Ernährung</h3>
+    ${nrow('b12', 'Vitamin B12', 4, 'µg')}${nrow('d', 'Vitamin D', 20, 'µg')}${nrow('jod', 'Jod', 200, 'µg')}
+    ${nrow('fe', 'Eisen', m ? 11 : 15, 'mg')}${nrow('zn', 'Zink', m ? 16 : 10, 'mg')}${nrow('ca', 'Calcium', 1000, 'mg')}
+    ${nrow('ala', 'Omega-3 (ALA)', ala, 'g')}${nrow('dha', 'Omega-3 (DHA/EPA)', 250, 'mg')}
+    ${nrow('se', 'Selen', m ? 70 : 60, 'µg')}${nrow('b2', 'Vitamin B2', m ? 1.4 : 1.1, 'mg')}
+  </div>
+  <div class="card"><h3>Weitere Nährstoffe</h3>
+    ${nrow('fib', 'Ballaststoffe', 30, 'g')}${nrow('mg', 'Magnesium', m ? 350 : 300, 'mg')}${nrow('fol', 'Folat', 300, 'µg')}
+    <p class="note">Richtwerte für Erwachsene, orientiert an der DGE. Beim Zink schon an pflanzliche Ernährung angepasst, Vitamin D für den Fall ohne Sonne. Grün heißt: Ziel erreicht.</p>
+    <p class="note">Supplements zählen mit (<i class="ti ti-pill"></i>), wenn du bei den Medis einen Nährstoff hinterlegt hast und sie abgehakt sind. Fehlt bei einem Lebensmittel eine Angabe, zählt sie als 0. Die Werte sind daher eher zu niedrig, besonders bei eigenen und gescannten Produkten.</p>
   </div>`;
 }
 
@@ -304,7 +334,7 @@ function vWoche() {
     if (isOpen) {
       const meals = MEALS.filter(m => (x.d.meals[m.k] || []).length).map(m => `<div class="dmeal"><div><span>${m.n}</span><span>${fmt(mealKcal(x.d, m.k))} kcal</span></div>
         ${x.d.meals[m.k].map(it => `<div class="ditem"><span>${esc(it.name)}</span><span>${fmt(it.g)} ${it.ml ? 'ml' : 'g'} · ${fmt(it.n.kcal * it.g / 100)} kcal</span></div>`).join('')}</div>`).join('');
-      const medis = S.medis.filter(m => x.d.medis[m.id]).map(m => esc(m.name) + (medTime(x.d.medis[m.id]) ? ` (${medTime(x.d.medis[m.id])})` : '')).join(', ');
+      const medis = sortedMedis().filter(m => x.d.medis[m.id]).map(m => esc(m.name) + (medTime(x.d.medis[m.id]) ? ` (${medTime(x.d.medis[m.id])})` : '')).join(', ');
       body = `<div class="dbody">${meals || '<p class="note" style="margin:0">Keine Mahlzeiten eingetragen.</p>'}
         <div class="dextra"><i class="ti ti-droplet"></i> ${fmt(x.d.water * S.bottle, 2)} l · <i class="ti ti-pill"></i> ${medis || 'keine Medis abgehakt'}</div>
         <div class="dextra">Protein ${fmt(x.t.p)} g · KH ${fmt(x.t.c)} g · Fett ${fmt(x.t.f)} g</div>
@@ -357,10 +387,19 @@ function vProfil() {
   </div>
 
   <div class="card"><h3>Medis</h3>
-    <div class="mlist">${S.medis.map(m => `<div class="med"><span class="grow">${esc(m.name)}</span><small>${esc(m.time)}</small><button class="del" data-act="delMedi" data-id="${m.id}" aria-label="${esc(m.name)} löschen"><i class="ti ti-trash"></i></button></div>`).join('') || '<p class="note" style="margin:0">Noch keine Einträge.</p>'}</div>
-    <div class="addmedi"><input id="mn" placeholder="Omega-3 (Algenöl)" autocomplete="off"><select id="mt">${TIMES.map(t => `<option>${t}</option>`).join('')}</select></div>
-    <p id="merr" class="err hidden">Gib einen Namen ein.</p>
-    <button class="secondary" data-act="addMedi"><i class="ti ti-plus"></i> Hinzufügen</button>
+    <div class="mlist">${sortedMedis().map(m => { const sn = SUPP_NUTS.find(x => x[0] === m.nut);
+      return `<div class="med${editMedi === m.id ? ' editing' : ''}"><button class="grow mname" data-act="editMedi" data-id="${m.id}">${esc(m.name)}${sn && m.amt ? `<small>${sn[1]} · ${fmt(m.amt, 2)} ${sn[2]}</small>` : ''}</button><small>${esc(m.time)}</small>
+        <button class="del" data-act="editMedi" data-id="${m.id}" aria-label="${esc(m.name)} bearbeiten"><i class="ti ti-edit"></i></button>
+        <button class="del" data-act="delMedi" data-id="${m.id}" aria-label="${esc(m.name)} löschen"><i class="ti ti-trash"></i></button></div>`; }).join('') || '<p class="note" style="margin:0">Noch keine Einträge.</p>'}</div>
+    ${(() => { const em = S.medis.find(x => x.id === editMedi) || {}; return `
+    <h3 style="margin-top:12px">${em.id ? 'Bearbeiten' : 'Neu hinzufügen'}</h3>
+    <div class="addmedi"><input id="mn" placeholder="Omega-3 (Algenöl)" autocomplete="off" value="${esc(em.name || '')}"><select id="mt">${TIMES.map(t => `<option${t === em.time ? ' selected' : ''}>${t}</option>`).join('')}</select></div>
+    <div class="addmedi"><select id="mnut"><option value="">Zählt als Nährstoff: nein</option>${SUPP_NUTS.map(x => `<option value="${x[0]}"${x[0] === em.nut ? ' selected' : ''}>${x[1]} (${x[2]})</option>`).join('')}</select>
+      <input id="mamt" inputmode="decimal" placeholder="Menge" value="${em.amt ? fv(em.amt) : ''}" aria-label="Menge pro Einnahme"></div>
+    <p class="note" style="margin:4px 0 0">Menge pro Einnahme, steht auf der Packung. Bei Vitamin D in IE: 1.000 IE = 25 µg.</p>
+    <p id="merr" class="err hidden"></p>
+    <button class="secondary" data-act="addMedi"><i class="ti ti-${em.id ? 'check' : 'plus'}"></i> ${em.id ? 'Speichern' : 'Hinzufügen'}</button>
+    ${em.id ? '<button class="secondary" data-act="cancelMedi">Abbrechen</button>' : ''}`; })()}
   </div>
 
   <div class="card"><h3>Deine Daten</h3>
@@ -368,22 +407,35 @@ function vProfil() {
     <button class="secondary" data-act="exportData"><i class="ti ti-download"></i> Backup sichern</button>
     <label class="secondary"><i class="ti ti-upload"></i> Backup laden<input id="imp" type="file" accept="application/json,.json" class="hidden"></label>
   </div>
-  <p class="note" style="text-align:center">Lavendel · Version ${VERSION}</p>`;
+  <p class="note" style="text-align:center">Lavendel · Version ${VERSION}<br>
+    Nährwerte: Schweizer Nährwertdatenbank V 7.0, BLV (naehrwertdaten.ch)<br>Produkte: Open Food Facts (ODbL)</p>`;
 }
 
 /* ---------- Suche & Bottom-Sheet ---------- */
 function results(q) {
   const foods = allFoods().filter(f => addTarget !== 'recipe' || !f.recipe), words = norm(q).split(/\s+/).filter(Boolean);
-  let list;
+  let list, head = '', more = 0;
   if (!words.length) {
+    // Ohne Suchbegriff: zuletzt genutzt, dann eigene Sachen und die Startliste
     const rec = S.recent.map(findFood).filter(Boolean);
-    list = rec.concat(foods.filter(f => !S.recent.includes(f.id)).sort((a, b) => a.name.localeCompare(b.name, 'de')));
+    list = rec.concat(foods.filter(f => !f.db && !S.recent.includes(f.id)).sort((a, b) => a.name.localeCompare(b.name, 'de')));
+    head = `<p class="note">Tipp einen Begriff ein, um alle ${fmt(BASE.length + DB_SHOWN.length)} Lebensmittel zu durchsuchen.</p>`;
   } else {
-    list = foods.filter(f => words.every(w => norm(f.name).includes(w)))
-      .sort((a, b) => norm(a.name).indexOf(words[0]) - norm(b.name).indexOf(words[0]) || a.name.localeCompare(b.name, 'de'));
+    // Treffer am Wortanfang zuerst, dann Startliste vor eigenen Sachen vor Datenbank, dann kürzere Namen
+    const where = x => x.pos === 0 ? 0 : x.pos > 0 ? 1 : 2;
+    const rank = f => f.starter ? 0 : f.db ? 2 : 1;
+    list = foods.map(f => {
+      if (!f._all) f._all = norm(`${f.name} ${f.s || ''}`);
+      return { f, all: f._all, pos: norm(f.name).indexOf(words[0]) };
+    }).filter(x => words.every(w => x.all.includes(w)))
+      .sort((a, b) => where(a) - where(b) || rank(a.f) - rank(b.f) || a.f.name.length - b.f.name.length || a.f.name.localeCompare(b.f.name, 'de'))
+      .map(x => x.f);
+    if (list.length > 60) { more = list.length - 60; list = list.slice(0, 60); }
   }
-  const rows = list.map(f => `<button class="res" data-act="pick" data-id="${f.id}"><span class="grow">${esc(f.name)}${f.recipe ? '<span class="tag">Rezept</span>' : f.src === 'off' ? '<span class="tag">Produkt</span>' : f.custom ? '<span class="tag">eigenes</span>' : ''}${!words.length && S.recent.includes(f.id) ? '<i class="ti ti-history rec"></i>' : ''}</span><small>${fmt(f.n.kcal)} kcal / 100 ${f.ml ? 'ml' : 'g'}</small></button>`).join('');
-  return (rows || '<p class="empty">Nichts gefunden.</p>') +
+  const tag = f => f.recipe ? '<span class="tag">Rezept</span>' : f.src === 'off' ? '<span class="tag">Produkt</span>' : f.custom ? '<span class="tag">eigenes</span>' : '';
+  const rows = list.map(f => `<button class="res" data-act="pick" data-id="${f.id}"><span class="grow">${esc(f.name)}${tag(f)}${!words.length && S.recent.includes(f.id) ? '<i class="ti ti-history rec"></i>' : ''}${f.db ? `<small class="cat">${esc(f.cat)}</small>` : ''}</span><small>${fmt(f.n.kcal)} kcal / 100 ${f.ml ? 'ml' : 'g'}</small></button>`).join('');
+  return head + (rows || '<p class="empty">Nichts gefunden.</p>') +
+    (more ? `<p class="note">… und ${more} weitere. Gib einen genaueren Begriff ein.</p>` : '') +
     `<button class="res new" data-act="newFood"><i class="ti ti-plus"></i><span class="grow">Eigenes Lebensmittel anlegen</span></button>`;
 }
 function bindSearch(inp, res) {
@@ -467,8 +519,12 @@ function mapOff(code, p) {
   return { id: 'o' + code, code, name, src: 'off', custom: true, u,
     ml: /\d\s*(ml|cl|l)\b/i.test(p.quantity || ''),
     n: { kcal: Math.round(kcal), p: +n.proteins_100g || 0, c: +n.carbohydrates_100g || 0, f: +n.fat_100g || 0,
-      fib: +n.fiber_100g || 0, fe: mg(n.iron_100g), ca: mg(n.calcium_100g), zn: mg(n.zinc_100g) } };
+      fib: +n.fiber_100g || 0, fe: mg(n.iron_100g), ca: mg(n.calcium_100g), zn: mg(n.zinc_100g),
+      b12: ug(n['vitamin-b12_100g']), d: ug(n['vitamin-d_100g']), jod: ug(n.iodine_100g), se: ug(n.selenium_100g),
+      mg: mg(n.magnesium_100g), fol: ug(n.folates_100g ?? n['vitamin-b9_100g']), b2: mg(n['vitamin-b2_100g']),
+      ala: +n['alpha-linolenic-acid_100g'] || 0 } };
 }
+const ug = v => v == null || v === '' ? 0 : Math.round(Number(v) * 1e6 * 100) / 100; // g -> µg
 async function lookup(code) {
   code = String(code || '').replace(/\D/g, '');
   const out = $('#scres'); if (!out) return;
@@ -656,10 +712,17 @@ const ACT = {
     openAmount(food, meal);
   },
   addMedi: () => {
-    const name = $('#mn').value.trim();
-    if (!name) { $('#merr').classList.remove('hidden'); return; }
-    S.medis.push({ id: uid(), name, time: $('#mt').value }); save(); render();
+    const name = $('#mn').value.trim(), nut = $('#mnut').value, amt = num($('#mamt').value);
+    const err = m => { $('#merr').textContent = m; $('#merr').classList.remove('hidden'); };
+    if (!name) return err('Gib einen Namen ein.');
+    if (nut && !(amt > 0)) return err('Gib die Menge pro Einnahme ein, oder wähl „Zählt als Nährstoff: nein“.');
+    const data = { name, time: $('#mt').value, nut: nut || undefined, amt: nut ? amt : undefined };
+    const ex = S.medis.find(x => x.id === editMedi);
+    if (ex) Object.assign(ex, data); else S.medis.push({ id: uid(), ...data });
+    editMedi = null; save(); render(); toast(ex ? 'Gespeichert' : 'Hinzugefügt');
   },
+  editMedi: el => { editMedi = el.dataset.id; render(); $('#mn').scrollIntoView({ block: 'center' }); },
+  cancelMedi: () => { editMedi = null; render(); },
   delMedi: el => {
     const m = S.medis.find(x => x.id === el.dataset.id);
     if (m && confirm(`„${m.name}“ aus der Liste löschen?`)) { S.medis = S.medis.filter(x => x !== m); save(); render(); }

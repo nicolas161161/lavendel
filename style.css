@@ -58,6 +58,12 @@ main { max-width: 480px; margin: 0 auto;
 .ck.on { background: var(--l400); border-color: var(--l400); color: #fff; }
 .med.done .mn { color: var(--mut); text-decoration: line-through; }
 .med .mt { display: block; color: var(--l600); }
+.mname { text-align: left; }
+.mname small { display: block; }
+.med.editing { background: var(--l50); border-radius: 10px; padding-left: 6px; }
+.addmedi + .addmedi { margin-top: 8px; }
+.res .cat { display: block; font-size: 11px; }
+.nrow .ti { font-size: 14px; vertical-align: -2px; }
 
 /* Woche */
 .wchart { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; position: relative; margin-top: 4px; }
