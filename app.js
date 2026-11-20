@@ -2,7 +2,7 @@
 
 /* ---------- Grundlagen ---------- */
 const KEY = 'lavendel-v1';
-const VERSION = 9;
+const VERSION = 10;
 const MEALS = [
   { k: 'fr', n: 'Frühstück', i: 'ti-coffee' },
   { k: 'mi', n: 'Mittagessen', i: 'ti-salad' },
@@ -99,6 +99,38 @@ function recipeFood(r) {
   for (const k in t) n[k] = g ? Math.round(t[k] / g * 100 * 100) / 100 : 0;
   return { id: 'r' + r.id, name: r.name, recipe: true, n, ml: false, u: [['Portion', Math.round(g / r.servings) || 1]] };
 }
+// Standardrezepte (recipes-seed.js) einmalig übernehmen; gelöschte kommen nicht wieder
+function seedRecipes() {
+  if (typeof SEED_RECIPES === 'undefined') return;
+  S.seeded = S.seeded || [];
+  let changed = false;
+  for (const r of SEED_RECIPES) {
+    if (S.seeded.includes(r.sid)) continue;
+    S.seeded.push(r.sid); changed = true;
+    if (S.recipes.some(x => norm(x.name) === norm(r.name))) continue;
+    const items = r.items.map(([name, g, src, o = {}]) => {
+      let n = {}, fid;
+      if (typeof src === 'string' && src.startsWith('b:')) { const b = BASE.find(f => f.id === src.slice(2)); n = { ...b.n }; fid = b.id; }
+      else if (typeof src === 'string') { const d = DB_BY_ID[src]; n = d ? { ...d.n } : {}; }
+      else if (src) n = { ...src };
+      for (const k of ['kcal', 'p', 'c', 'f']) n[k] = n[k] || 0;
+      const it = { id: uid(), fid, name, g, n, ml: !!o.ml };
+      if (o.v) it.v = true;
+      if (o.u) it.u = o.u.slice();
+      if (o.t) it.t = o.t;
+      return it;
+    });
+    S.recipes.push({ id: uid(), sid: r.sid, icon: r.icon, name: r.name, servings: r.servings, meta: r.meta, items,
+      notes: r.steps.map((s, i) => `${i + 1}. ${s}`).join('\n'), tip: r.tip || '' });
+  }
+  if (changed) save();
+}
+// Menge einer Zutat als Text, f = Skalierung
+const ingAmt = (it, f) => {
+  if (it.t && !it.g) return it.t;
+  const g = `${fmt(it.g * f, it.g * f < 10 ? 1 : 0)} ${it.ml ? 'ml' : 'g'}`;
+  return it.u ? `${fmt(it.u[0] * f, 2)} ${it.u[1]} <small>· ${g}</small>` : g;
+};
 const allFoods = () => BASE.concat(S.custom, S.recipes.map(recipeFood), DB_SHOWN);
 const findFood = id => allFoods().find(f => f.id === id);
 
@@ -222,20 +254,25 @@ function vSuche() {
 }
 
 /* ---------- Einkaufsliste ---------- */
-const shopAmt = x => x.g == null ? '' : x.g >= 1000 ? fmt(x.g / 1000, 2) + (x.ml ? ' l' : ' kg') : fmt(x.g, x.g < 10 ? 1 : 0) + (x.ml ? ' ml' : ' g');
+const shopAmt = x => x.g == null ? '' : x.unit ? `${fmt(x.cnt, 2)} ${x.unit}` : x.g >= 1000 ? fmt(x.g / 1000, 2) + (x.ml ? ' l' : ' kg') : fmt(x.g, x.g < 10 ? 1 : 0) + (x.ml ? ' ml' : ' g');
 const shopOpen = () => (S.shop || []).filter(x => !x.done).length;
 const shopFab = () => { const n = shopOpen();
   return `<div class="fabpad"></div><button class="fab" data-act="openShop" aria-label="Einkaufsliste${n ? `, ${n} offen` : ''}"><i class="ti ti-shopping-cart"></i>${n ? `<span class="badge">${n}</span>` : ''}</button>`; };
 function addToShop(r, sc) {
   const f = sc / r.servings; S.shop = S.shop || [];
-  for (const it of r.items) {
-    const g = Math.round(it.g * f * 10) / 10;
-    // Gleiche Zutat, die noch nicht abgehakt ist, wird zusammengezählt
-    const ex = S.shop.find(x => !x.done && x.g != null && !!x.ml === !!it.ml && (it.fid ? x.fid === it.fid : norm(x.name) === norm(it.name)));
-    if (ex) { ex.g = Math.round((ex.g + g) * 10) / 10; if (!ex.from.includes(r.name)) ex.from.push(r.name); }
-    else S.shop.push({ id: uid(), fid: it.fid, name: it.name, g, ml: !!it.ml, from: [r.name], done: false });
+  const buy = r.items.filter(it => !it.v);
+  for (const it of buy) {
+    const g = Math.round(it.g * f * 10) / 10, unit = it.u ? it.u[1] : null, cnt = it.u ? it.u[0] * f : null;
+    // Gleiche Zutat (gleiche Einheit), die noch nicht abgehakt ist, wird zusammengezählt
+    const ex = S.shop.find(x => !x.done && x.g != null && !!x.ml === !!it.ml && (x.unit || null) === unit
+      && (it.fid ? x.fid === it.fid : norm(x.name) === norm(it.name)));
+    if (ex) {
+      ex.g = Math.round((ex.g + g) * 10) / 10; if (unit) ex.cnt = Math.round((ex.cnt + cnt) * 100) / 100;
+      if (!ex.from.includes(r.name)) ex.from.push(r.name);
+    } else S.shop.push({ id: uid(), fid: it.fid, name: it.name, g, ml: !!it.ml, unit, cnt: unit ? Math.round(cnt * 100) / 100 : null, from: [r.name], done: false });
   }
-  save(); toast(`${r.items.length} Zutaten auf die Einkaufsliste`);
+  const skip = r.items.length - buy.length;
+  save(); toast(`${buy.length} Zutaten auf die Einkaufsliste${skip ? ` (${skip} aus dem Vorrat nicht)` : ''}`);
 }
 function vEinkauf() {
   const L = S.shop || [], open = L.filter(x => !x.done), done = L.filter(x => x.done);
@@ -287,7 +324,7 @@ function vRezepte() {
   }
   const list = S.recipes.slice().sort((a, b) => a.name.localeCompare(b.name, 'de')).map(r => {
     const { t } = recipeTotals(r.items);
-    return `<button class="rcard" data-act="openRecipe" data-id="${r.id}"><span class="ic"><i class="ti ti-chef-hat"></i></span>
+    return `<button class="rcard" data-act="openRecipe" data-id="${r.id}"><span class="ic">${r.icon ? `<span class="emo">${esc(r.icon)}</span>` : '<i class="ti ti-chef-hat"></i>'}</span>
       <span class="grow"><b>${esc(r.name)}</b><small>${fmt(r.servings, 1)} Portionen · ${fmt(t.kcal / r.servings)} kcal pro Portion</small></span><i class="ti ti-chevron-right chev"></i></button>`;
   }).join('');
   return `<h1>Rezepte</h1>
@@ -301,12 +338,20 @@ function nutGrid(t, div) {
   return `<div class="prev"><div><b>${v('kcal', 0)}</b><small>kcal</small></div><div><b>${v('p', 1)}</b><small>Protein</small></div><div><b>${v('c', 1)}</b><small>KH</small></div><div><b>${v('f', 1)}</b><small>Fett</small></div></div>`;
 }
 
+// Nummerierte Schritte („1. …“) als schöne Liste, sonst normaler Text
+function notesHtml(s) {
+  const lines = s.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length && lines.every(l => /^\d+[.)]\s/.test(l)))
+    return `<ol class="steps">${lines.map(l => `<li>${esc(l.replace(/^\d+[.)]\s+/, ''))}</li>`).join('')}</ol>`;
+  return `<p class="notes">${esc(s)}</p>`;
+}
 function vRezeptView(r) {
   const sc = recipeView.scale || r.servings, f = sc / r.servings, { t } = recipeTotals(r.items);
   return `<div class="top">
       <button class="iconbtn" data-act="recipeBack" aria-label="Zurück zur Liste"><i class="ti ti-chevron-left"></i></button>
-      <h1 class="grow" style="margin:4px 0">${esc(r.name)}</h1>
+      <h1 class="grow" style="margin:4px 0">${r.icon ? esc(r.icon) + ' ' : ''}${esc(r.name)}</h1>
       <button class="iconbtn" data-act="editRecipe" aria-label="Rezept bearbeiten"><i class="ti ti-edit"></i></button></div>
+    ${r.meta ? `<p class="rmeta"><i class="ti ti-clock"></i> ${esc(r.meta)}</p>` : ''}
     <div class="card"><h3>Pro Portion</h3>${nutGrid(t, r.servings)}</div>
     <div class="card">
       <div class="chead"><span>Zutaten</span>
@@ -314,16 +359,19 @@ function vRezeptView(r) {
         <span><b>${fmt(sc, 1)}</b> Port.</span>
         <button class="iconbtn" data-act="scale" data-n="1" aria-label="Mehr Portionen"><i class="ti ti-plus"></i></button></span></div>
       ${sc !== r.servings ? `<small>Umgerechnet von ${fmt(r.servings, 1)} Portionen</small>` : ''}
-      ${r.items.map(it => `<div class="ditem ing"><span>${esc(it.name)}</span><span>${fmt(it.g * f, it.g * f < 10 ? 1 : 0)} ${it.ml ? 'ml' : 'g'}</span></div>`).join('')}
+      ${r.items.map(it => `<div class="ditem ing${it.v ? ' vorrat' : ''}"><span>${esc(it.name)}${it.v ? ' <i class="ti ti-home" title="Vorrat"></i>' : ''}</span><span>${ingAmt(it, f)}</span></div>`).join('')}
+      ${r.items.some(it => it.v) ? '<p class="note" style="margin-bottom:0"><i class="ti ti-home"></i> = Vorrat, kommt nicht auf die Einkaufsliste</p>' : ''}
     </div>
-    ${r.notes ? `<div class="card"><h3>Zubereitung</h3><p class="notes">${esc(r.notes)}</p></div>` : ''}
+    ${r.notes ? `<div class="card"><h3>Zubereitung</h3>${notesHtml(r.notes)}</div>` : ''}
+    ${r.tip ? `<div class="card banner tipcard"><i class="ti ti-bulb"></i><span class="grow"><b>Tipp</b><br>${esc(r.tip)}</span></div>` : ''}
     <button class="primary" data-act="logRecipe" data-id="${r.id}"><i class="ti ti-plus"></i> Ins Tagebuch eintragen</button>
     <button class="secondary wide" data-act="shopRecipe" data-id="${r.id}"><i class="ti ti-shopping-cart-plus"></i> ${fmt(sc, 1)} Portionen auf die Einkaufsliste</button>`;
 }
 
 function vRezeptEdit() {
   const d = recipeView.draft, { t } = recipeTotals(d.items);
-  const rows = d.items.map((it, i) => `<div class="ingrow"><span class="grow">${esc(it.name)}<small>${fmt(it.n.kcal * it.g / 100)} kcal</small></span>
+  const rows = d.items.map((it, i) => `<div class="ingrow"><button class="vbtn${it.v ? ' on' : ''}" data-act="togglePantry" data-ri="${i}" aria-label="${it.v ? 'Vorrat, kommt nicht auf die Einkaufsliste' : 'Kommt auf die Einkaufsliste'}" aria-pressed="${!!it.v}"><i class="ti ti-home"></i></button>
+      <span class="grow">${esc(it.name)}<small>${it.u ? `${fmt(it.u[0], 2)} ${esc(it.u[1])} · ` : ''}${fmt(it.n.kcal * it.g / 100)} kcal</small></span>
       <input class="gin" data-ri="${i}" inputmode="decimal" value="${fv(it.g)}" aria-label="Menge ${esc(it.name)}"><span class="unit">${it.ml ? 'ml' : 'g'}</span>
       <button class="del" data-act="delIng" data-ri="${i}" aria-label="${esc(it.name)} entfernen"><i class="ti ti-x"></i></button></div>`).join('');
   return `<div class="top">
@@ -334,11 +382,13 @@ function vRezeptEdit() {
       <label class="field">Das Rezept ergibt (Portionen)<input data-draft="servings" inputmode="decimal" value="${fv(d.servings)}"></label>
     </div>
     <div class="card"><div class="chead"><span>Zutaten</span><span class="val">${fmt(t.kcal)} kcal gesamt</span></div>
-      ${rows || '<p class="note">Noch keine Zutaten.</p>'}
+      ${rows ? rows + '<p class="note" style="margin-bottom:0">Tipp aufs <i class="ti ti-home"></i>, um eine Zutat als Vorrat zu markieren. Vorrat kommt nicht auf die Einkaufsliste.</p>' : '<p class="note">Noch keine Zutaten.</p>'}
       <button class="secondary" data-act="addIng" style="margin-top:8px"><i class="ti ti-plus"></i> Zutat hinzufügen</button>
     </div>
     ${d.items.length ? `<div class="card"><h3>Pro Portion</h3>${nutGrid(t, d.servings || 1)}</div>` : ''}
-    <div class="card"><label class="field" style="margin:0">Zubereitung (optional)<textarea data-draft="notes" rows="4" placeholder="Zwiebeln anbraten, Linsen und Kokosmilch dazu …">${esc(d.notes || '')}</textarea></label></div>
+    <div class="card"><label class="field" style="margin:0">Zubereitung (optional)<textarea data-draft="notes" rows="4" placeholder="Zwiebeln anbraten, Linsen und Kokosmilch dazu …">${esc(d.notes || '')}</textarea></label>
+      <p class="note" style="margin:4px 0 10px">Schreibst du die Schritte als „1. …“, „2. …“, werden sie als Liste angezeigt.</p>
+      <label class="field" style="margin:0">Tipp (optional)<textarea data-draft="tip" rows="2">${esc(d.tip || '')}</textarea></label></div>
     <p id="rerr" class="err hidden"></p>
     <button class="primary" data-act="saveRecipe">Rezept speichern</button>
     ${d.id ? `<button class="secondary" data-act="delRecipe" style="margin-top:10px"><i class="ti ti-trash"></i> Rezept löschen</button>` : ''}`;
@@ -692,6 +742,7 @@ const ACT = {
     recipeView = d.id ? { mode: 'view', id: d.id, scale: null } : null; render();
   },
   addIng: () => { addTarget = 'recipe'; openSearch(autoMeal()); },
+  togglePantry: el => { const it = recipeView.draft.items[+el.dataset.ri]; it.v = !it.v; render(); },
   delIng: el => { recipeView.draft.items.splice(+el.dataset.ri, 1); render(); },
   saveRecipe: () => {
     const d = recipeView.draft, err = $('#rerr');
@@ -835,7 +886,10 @@ document.addEventListener('input', e => {
 document.addEventListener('change', e => {
   const el = e.target;
   if (recipeView && recipeView.mode === 'edit' && (el.dataset.draft === 'servings' || el.dataset.ri)) {
-    if (el.dataset.ri) { const v = num(el.value); if (v > 0) recipeView.draft.items[+el.dataset.ri].g = v; }
+    if (el.dataset.ri) {
+      const v = num(el.value), it = recipeView.draft.items[+el.dataset.ri];
+      if (v > 0) { if (it.u && it.g > 0) it.u[0] = Math.round(it.u[0] * v / it.g * 100) / 100; it.g = v; }
+    }
     render(); return;
   }
   if (el.dataset.bind) {
@@ -893,4 +947,5 @@ if ('serviceWorker' in navigator && !['localhost', '127.0.0.1'].includes(locatio
   });
 }
 
+seedRecipes();
 render();
