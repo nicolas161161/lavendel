@@ -188,3 +188,17 @@ textarea { font: inherit; font-size: 16px; color: var(--txt); border: 1px solid 
   background: var(--l900); color: #fff; padding: 9px 16px; border-radius: 20px; font-size: 13px; z-index: 30;
   opacity: 0; pointer-events: none; transition: opacity .2s; white-space: nowrap; }
 #toast.show { opacity: 1; }
+
+/* Einkaufsliste */
+.fab { position: fixed; z-index: 9; right: max(16px, calc(50% - 224px)); bottom: calc(env(safe-area-inset-bottom) + 72px);
+  width: 56px; height: 56px; border-radius: 50%; background: var(--l400); color: #fff; font-size: 26px;
+  display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(83, 74, 183, .3); }
+.fab:active { background: var(--l600); }
+.fab .badge { position: absolute; top: -2px; right: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
+  background: #ED93B1; color: #fff; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+.fabpad { height: 64px; }
+.shoprow { display: flex; align-items: center; gap: 4px; }
+.shoprow .med { flex: 1; min-width: 0; }
+.samt { color: var(--mut); white-space: nowrap; font-size: 14px; }
+.shopact { display: flex; flex-wrap: wrap; margin-top: 10px; }
+.secondary.wide { display: flex; width: 100%; justify-content: center; margin: 10px 0 0; }

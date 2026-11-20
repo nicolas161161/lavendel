@@ -2,7 +2,7 @@
 
 /* ---------- Grundlagen ---------- */
 const KEY = 'lavendel-v1';
-const VERSION = 8;
+const VERSION = 9;
 const MEALS = [
   { k: 'fr', n: 'Frühstück', i: 'ti-coffee' },
   { k: 'mi', n: 'Mittagessen', i: 'ti-salad' },
@@ -53,7 +53,7 @@ function defState() {
     profile: { sex: 'w', age: 30, height: 170, weight: 65, act: 1.55, goal: 0 },
     goals: null, waterGoal: 3, bottle: 0.75, setup: false,
     medis: [{ id: 'm1', name: 'Vitamin B12', time: 'morgens' }, { id: 'm2', name: 'Vitamin D3', time: 'morgens' }],
-    custom: [], recipes: [], recent: [], lastAmt: {}, days: {}, ui: { medisOpen: true },
+    custom: [], recipes: [], recent: [], lastAmt: {}, days: {}, shop: [], ui: { medisOpen: true },
   };
 }
 function load() {
@@ -221,11 +221,68 @@ function vSuche() {
   <div id="res"></div>`;
 }
 
+/* ---------- Einkaufsliste ---------- */
+const shopAmt = x => x.g == null ? '' : x.g >= 1000 ? fmt(x.g / 1000, 2) + (x.ml ? ' l' : ' kg') : fmt(x.g, x.g < 10 ? 1 : 0) + (x.ml ? ' ml' : ' g');
+const shopOpen = () => (S.shop || []).filter(x => !x.done).length;
+const shopFab = () => { const n = shopOpen();
+  return `<div class="fabpad"></div><button class="fab" data-act="openShop" aria-label="Einkaufsliste${n ? `, ${n} offen` : ''}"><i class="ti ti-shopping-cart"></i>${n ? `<span class="badge">${n}</span>` : ''}</button>`; };
+function addToShop(r, sc) {
+  const f = sc / r.servings; S.shop = S.shop || [];
+  for (const it of r.items) {
+    const g = Math.round(it.g * f * 10) / 10;
+    // Gleiche Zutat, die noch nicht abgehakt ist, wird zusammengezählt
+    const ex = S.shop.find(x => !x.done && x.g != null && !!x.ml === !!it.ml && (it.fid ? x.fid === it.fid : norm(x.name) === norm(it.name)));
+    if (ex) { ex.g = Math.round((ex.g + g) * 10) / 10; if (!ex.from.includes(r.name)) ex.from.push(r.name); }
+    else S.shop.push({ id: uid(), fid: it.fid, name: it.name, g, ml: !!it.ml, from: [r.name], done: false });
+  }
+  save(); toast(`${r.items.length} Zutaten auf die Einkaufsliste`);
+}
+function vEinkauf() {
+  const L = S.shop || [], open = L.filter(x => !x.done), done = L.filter(x => x.done);
+  const row = x => `<div class="shoprow"><button class="med${x.done ? ' done' : ''}" data-act="shopTick" data-id="${x.id}"><span class="ck${x.done ? ' on' : ''}"><i class="ti ti-check"></i></span>
+      <span class="grow"><span class="mn">${esc(x.name)}</span>${x.from && x.from.length ? `<small class="mt">${esc(x.from.join(', '))}</small>` : ''}</span>
+      <span class="samt">${shopAmt(x)}</span></button>
+    <button class="del" data-act="shopDel" data-id="${x.id}" aria-label="${esc(x.name)} entfernen"><i class="ti ti-x"></i></button></div>`;
+  return `<div class="top">
+      <button class="iconbtn" data-act="shopBack" aria-label="Zurück"><i class="ti ti-chevron-left"></i></button>
+      <h1 class="grow" style="margin:4px 0">Einkaufsliste</h1>
+      ${open.length ? `<button class="iconbtn" data-act="shopCopy" aria-label="Liste kopieren"><i class="ti ti-copy"></i></button>` : ''}</div>
+    <div class="card">
+      <div class="codein" style="margin:0"><input id="shopin" placeholder="z. B. Spülmittel, 2 Zitronen" autocomplete="off" aria-label="Eintrag hinzufügen">
+        <button class="secondary" data-act="shopAdd" aria-label="Hinzufügen"><i class="ti ti-plus"></i></button></div>
+      <button class="secondary" data-act="shopPick" style="margin-top:10px"><i class="ti ti-chef-hat"></i> Rezept hinzufügen</button>
+    </div>
+    ${L.length ? `<div class="card">
+        <div class="chead"><span>Noch zu kaufen</span><span class="val">${open.length}</span></div>
+        ${open.map(row).join('') || '<p class="note">Alles im Korb.</p>'}
+        ${done.length ? `<div class="chead" style="margin-top:10px"><span>Im Korb</span><span class="val">${done.length}</span></div>${done.map(row).join('')}` : ''}
+      </div>
+      ${open.length ? `<button class="primary" data-act="shopCopy"><i class="ti ti-copy"></i> Liste kopieren</button>` : ''}
+      <div class="shopact">
+        ${done.length ? `<button class="secondary" data-act="shopClearDone"><i class="ti ti-checks"></i> Abgehakte entfernen</button>` : ''}
+        <button class="secondary" data-act="shopClearAll"><i class="ti ti-trash"></i> Alle entfernen</button>
+      </div>`
+    : `<div class="card banner"><i class="ti ti-shopping-cart"></i><span class="grow"><b>Deine Einkaufsliste ist leer</b><br><small>Tipp oben etwas ein oder füg ein Rezept hinzu. Die Mengen gleicher Zutaten werden zusammengezählt.</small></span></div>`}`;
+}
+function copyText(txt) {
+  if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(txt);
+  const ta = document.createElement('textarea'); ta.value = txt; ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select();
+  const ok = document.execCommand('copy'); ta.remove();
+  return ok ? Promise.resolve() : Promise.reject();
+}
+function shopAddManual() {
+  const inp = $('#shopin'), name = inp.value.trim(); if (!name) return;
+  S.shop = S.shop || []; S.shop.push({ id: uid(), name, from: [], done: false });
+  save(); render(); $('#shopin').focus();
+}
+
 function vRezepte() {
+  if (recipeView && recipeView.mode === 'shop') return vEinkauf();
   if (recipeView && recipeView.mode === 'edit') return vRezeptEdit();
   if (recipeView && recipeView.mode === 'view') {
     const r = S.recipes.find(x => x.id === recipeView.id);
-    if (r) return vRezeptView(r);
+    if (r) return vRezeptView(r) + shopFab();
     recipeView = null;
   }
   const list = S.recipes.slice().sort((a, b) => a.name.localeCompare(b.name, 'de')).map(r => {
@@ -236,7 +293,7 @@ function vRezepte() {
   return `<h1>Rezepte</h1>
   ${list ? `<div class="card" style="padding:2px 14px">${list}</div>`
     : `<div class="card banner"><i class="ti ti-chef-hat"></i><span class="grow"><b>Leg dein erstes Rezept an</b><br><small>Zutaten einmal eintragen, danach mit einem Tipp als Portion ins Tagebuch.</small></span></div>`}
-  <button class="primary" data-act="newRecipe"><i class="ti ti-plus"></i> Neues Rezept</button>`;
+  <button class="primary" data-act="newRecipe"><i class="ti ti-plus"></i> Neues Rezept</button>${shopFab()}`;
 }
 
 function nutGrid(t, div) {
@@ -260,7 +317,8 @@ function vRezeptView(r) {
       ${r.items.map(it => `<div class="ditem ing"><span>${esc(it.name)}</span><span>${fmt(it.g * f, it.g * f < 10 ? 1 : 0)} ${it.ml ? 'ml' : 'g'}</span></div>`).join('')}
     </div>
     ${r.notes ? `<div class="card"><h3>Zubereitung</h3><p class="notes">${esc(r.notes)}</p></div>` : ''}
-    <button class="primary" data-act="logRecipe" data-id="${r.id}"><i class="ti ti-plus"></i> Ins Tagebuch eintragen</button>`;
+    <button class="primary" data-act="logRecipe" data-id="${r.id}"><i class="ti ti-plus"></i> Ins Tagebuch eintragen</button>
+    <button class="secondary wide" data-act="shopRecipe" data-id="${r.id}"><i class="ti ti-shopping-cart-plus"></i> ${fmt(sc, 1)} Portionen auf die Einkaufsliste</button>`;
 }
 
 function vRezeptEdit() {
@@ -655,6 +713,27 @@ const ACT = {
     const r = S.recipes.find(x => x.id === recipeView.id);
     recipeView.scale = Math.max(1, Math.round((recipeView.scale || r.servings) + +el.dataset.n)); render();
   },
+  openShop: () => { recipeView = { mode: 'shop', back: recipeView }; render(); window.scrollTo(0, 0); },
+  shopBack: () => { recipeView = recipeView.back || null; render(); window.scrollTo(0, 0); },
+  shopTick: el => { const x = S.shop.find(i => i.id === el.dataset.id); if (x) { x.done = !x.done; save(); render(); } },
+  shopDel: el => { S.shop = S.shop.filter(i => i.id !== el.dataset.id); save(); render(); },
+  shopAdd: () => shopAddManual(),
+  shopClearDone: () => { S.shop = S.shop.filter(i => !i.done); save(); render(); toast('Abgehakte entfernt'); },
+  shopClearAll: () => { if (!confirm('Die ganze Einkaufsliste leeren?')) return; S.shop = []; save(); render(); },
+  shopCopy: () => {
+    const open = S.shop.filter(x => !x.done);
+    const txt = 'Einkaufsliste\n' + open.map(x => `• ${x.name}${x.g != null ? ' – ' + shopAmt(x) : ''}`).join('\n');
+    copyText(txt).then(() => toast('Kopiert – jetzt z. B. in WhatsApp einfügen'), () => toast('Kopieren hat nicht geklappt'));
+  },
+  shopRecipe: el => { const r = S.recipes.find(x => x.id === el.dataset.id); addToShop(r, recipeView.scale || r.servings); render(); },
+  shopPick: () => {
+    if (!S.recipes.length) return toast('Du hast noch keine Rezepte');
+    showSheet(`<div class="shead"><h2 class="grow">Rezept hinzufügen</h2>${closeBtn}</div>
+      <p class="note" style="margin-top:0">Für andere Portionen öffne das Rezept und stell sie dort ein.</p>
+      ${S.recipes.slice().sort((a, b) => a.name.localeCompare(b.name, 'de')).map(r => `<button class="rcard" data-act="shopPickR" data-id="${r.id}"><span class="ic"><i class="ti ti-chef-hat"></i></span>
+        <span class="grow"><b>${esc(r.name)}</b><small>${fmt(r.servings, 1)} Portionen · ${r.items.length} Zutaten</small></span><i class="ti ti-plus chev"></i></button>`).join('')}`);
+  },
+  shopPickR: el => { addToShop(S.recipes.find(x => x.id === el.dataset.id), S.recipes.find(x => x.id === el.dataset.id).servings); closeSheet(); render(); },
   logRecipe: el => openAmount(recipeFood(S.recipes.find(r => r.id === el.dataset.id)), autoMeal()),
   toggleDay: el => { const k = el.dataset.k; openDays.has(k) ? openDays.delete(k) : openDays.add(k); render(); },
   gotoDay: el => { cur = el.dataset.k; tab = 'heute'; render(); window.scrollTo(0, 0); },
@@ -788,6 +867,7 @@ document.addEventListener('change', e => {
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id === 'aq') ACT.confirmAdd();
+  if (e.key === 'Enter' && e.target.id === 'shopin') shopAddManual();
   if (e.key === 'Enter' && e.target.id === 'code') ACT.lookup();
   if (e.key === 'Escape' && sheet) closeSheet();
 });
