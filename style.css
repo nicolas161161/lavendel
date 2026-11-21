@@ -220,3 +220,12 @@ textarea { font: inherit; font-size: 16px; color: var(--txt); border: 1px solid 
 .vbtn { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   color: var(--l100); font-size: 17px; flex-shrink: 0; }
 .vbtn.on { background: var(--l50); color: var(--l600); }
+
+/* Suchfenster bleibt oben (sonst verdeckt die Tastatur die Eingabe) */
+.panel.tall { top: max(6vh, calc(env(safe-area-inset-top) + 8px)); min-height: 0; max-height: none; }
+/* Wie letztes Mal */
+.lastcard { background: var(--l50); border: 0; padding: 12px 14px; margin-bottom: 12px; }
+.lastcard .chead .ti { color: var(--l400); vertical-align: -2px; }
+.lastcard .ditem { padding: 4px 0 0; font-size: 14px; }
+.lastcard .lsum { font-weight: 600; color: var(--l900); border-top: 1px solid var(--l100); margin-top: 6px; padding-top: 6px; }
+.lastcard .secondary.wide { background: #fff; }

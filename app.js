@@ -2,7 +2,7 @@
 
 /* ---------- Grundlagen ---------- */
 const KEY = 'lavendel-v1';
-const VERSION = 10;
+const VERSION = 11;
 const MEALS = [
   { k: 'fr', n: 'Frühstück', i: 'ti-coffee' },
   { k: 'mi', n: 'Mittagessen', i: 'ti-salad' },
@@ -61,7 +61,9 @@ function load() {
     const s = JSON.parse(localStorage.getItem(KEY));
     if (s && typeof s === 'object') {
       const d = defState();
-      return { ...d, ...s, profile: { ...d.profile, ...s.profile }, ui: { ...d.ui, ...s.ui } };
+      const profile = { ...d.profile, ...s.profile };
+      if (profile.act > 3) profile.act = profile.act / 1000; // falsch gespeicherte Aktivität (1725 statt 1,725) reparieren
+      return { ...d, ...s, profile, ui: { ...d.ui, ...s.ui } };
     }
   } catch (e) { /* ignorieren, Standard verwenden */ }
   return defState();
@@ -204,10 +206,10 @@ function vHeute() {
     return `<div class="meal"><div class="mrow">
       <button data-act="toggleMeal" data-k="${m.k}"><span class="ic"><i class="ti ${m.i}"></i></span>
         <span class="grow">${m.n}${items.length ? `<small> · ${items.length}</small>` : ''}</span>
-        ${items.length ? `<span class="kc">${fmt(mealKcal(d, m.k))}</span><i class="ti ti-chevron-${isOpen ? 'up' : 'down'} chev"></i>` : ''}
+        ${items.length ? `<span class="kc">${fmt(mealKcal(d, m.k))} kcal</span><i class="ti ti-chevron-${isOpen ? 'up' : 'down'} chev"></i>` : ''}
       </button>
       <button class="plus" data-act="add" data-k="${m.k}" aria-label="Zu ${m.n} hinzufügen"><i class="ti ti-plus"></i></button>
-    </div>${isOpen ? `<div class="items">${items.map(it => `<div class="item"><span class="grow">${esc(it.name)}<small>${fmt(it.g)} ${it.ml ? 'ml' : 'g'}${it.u ? ' · ' + esc(it.u) : ''}</small></span><span class="kc">${fmt(it.n.kcal * it.g / 100)}</span><button class="del" data-act="delItem" data-k="${m.k}" data-id="${it.id}" aria-label="${esc(it.name)} entfernen"><i class="ti ti-x"></i></button></div>`).join('')}</div>` : ''}</div>`;
+    </div>${isOpen ? `<div class="items">${items.map(it => `<div class="item"><span class="grow">${esc(it.name)}<small>${fmt(it.g)} ${it.ml ? 'ml' : 'g'}${it.u ? ' · ' + esc(it.u) : ''}</small></span><span class="kc">${fmt(it.n.kcal * it.g / 100)} kcal</span><button class="del" data-act="delItem" data-k="${m.k}" data-id="${it.id}" aria-label="${esc(it.name)} entfernen"><i class="ti ti-x"></i></button></div>`).join('')}</div>` : ''}</div>`;
   }).join('');
 
   return `
@@ -552,10 +554,23 @@ function bindSearch(inp, res) {
   run();
 }
 
-function showSheet(html) {
+// Letzter Tag vor dem gewählten Tag, an dem diese Mahlzeit etwas enthielt
+function lastMeal(meal) {
+  const k = Object.keys(S.days).filter(x => x < cur && (S.days[x].meals[meal] || []).length).sort().pop();
+  return k ? { k, items: S.days[k].meals[meal] } : null;
+}
+function lastMealCard(meal) {
+  const last = lastMeal(meal); if (!last) return '';
+  const kc = it => it.n.kcal * it.g / 100, sum = last.items.reduce((s, it) => s + kc(it), 0);
+  return `<div class="card lastcard"><div class="chead"><span><i class="ti ti-repeat"></i> Wie letztes Mal</span><span class="val">${dateLabel(last.k)}</span></div>
+    ${last.items.map(it => `<div class="ditem"><span>${esc(it.name)}</span><span>${fmt(kc(it))} kcal</span></div>`).join('')}
+    <div class="ditem lsum"><span>Zusammen</span><span>${fmt(sum)} kcal</span></div>
+    <button class="secondary wide" data-act="copyLast"><i class="ti ti-copy"></i> Alles übernehmen</button></div>`;
+}
+function showSheet(html, cls = '') {
   stopScanner();
   const s = $('#sheet');
-  s.innerHTML = `<div class="backdrop" data-act="closeSheet"></div><div class="panel" role="dialog"><div class="grab"></div>${html}</div>`;
+  s.innerHTML = `<div class="backdrop" data-act="closeSheet"></div><div class="panel ${cls}" role="dialog"><div class="grab"></div>${html}</div>`;
   s.classList.remove('hidden');
   document.body.classList.add('noscroll');
 }
@@ -664,8 +679,9 @@ async function lookup(code) {
 function openSearch(meal) {
   sheet = { mode: 'search', meal };
   showSheet(`<div class="shead"><h2 class="grow">${addTarget === 'recipe' ? 'Zutat hinzufügen' : mealName(meal)}</h2>${closeBtn}</div>
+    ${addTarget === 'recipe' ? '' : lastMealCard(meal)}
     <div class="search"><i class="ti ti-search"></i><input id="sq" type="search" placeholder="Lebensmittel suchen" autocomplete="off">${scanBtn}</div>
-    <div id="sres"></div>`);
+    <div id="sres"></div>`, 'tall');
   bindSearch($('#sq'), $('#sres'));
 }
 
@@ -718,7 +734,20 @@ function openNewFood() {
 
 /* ---------- Aktionen ---------- */
 const ACT = {
-  tab: el => { tab = el.dataset.tab; render(); window.scrollTo(0, 0); },
+  tab: el => {
+    tab = el.dataset.tab;
+    // Rezepte-Tab führt immer zur Rezeptliste (nur ein offener Rezept-Entwurf bleibt erhalten)
+    if (tab === 'rezepte' && recipeView && recipeView.mode !== 'edit') recipeView = null;
+    render(); window.scrollTo(0, 0);
+  },
+  copyLast: () => {
+    const last = lastMeal(sheet.meal); if (!last) return;
+    const d = day(cur, true), meal = sheet.meal;
+    for (const it of last.items) d.meals[meal].push({ ...JSON.parse(JSON.stringify(it)), id: uid() });
+    save(); closeSheet(); openMeals.add(meal);
+    if (tab === 'heute') render();
+    toast(`${last.items.length} ${last.items.length === 1 ? 'Eintrag' : 'Einträge'} zu ${mealName(meal)} hinzugefügt`);
+  },
   shift: el => { const d = new Date(cur + 'T12:00'); d.setDate(d.getDate() + +el.dataset.n); cur = iso(d); render(); },
   today: () => { cur = today(); render(); },
   water: el => { const d = day(cur, true), i = +el.dataset.i; d.water = d.water === i + 1 ? i : i + 1; save(); render(); },
@@ -895,7 +924,8 @@ document.addEventListener('change', e => {
   if (el.dataset.bind) {
     const [o, k] = el.dataset.bind.split('.');
     let v = el.value;
-    if (k !== 'sex') v = num(v);
+    // Auswahllisten direkt als Zahl lesen: num() würde „1.725“ als Tausenderzahl 1725 verstehen
+    if (k !== 'sex') v = el.tagName === 'SELECT' ? parseFloat(v) : num(v);
     if (el.tagName === 'INPUT' && !(v > 0)) { toast('Bitte eine Zahl größer als 0'); render(); return; }
     if (o === 'goals') S.goals = { ...goals(), [k]: v };
     else if (o === 'profile') { S.profile[k] = v; S.setup = true; }
