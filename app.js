@@ -2,7 +2,7 @@
 
 /* ---------- Grundlagen ---------- */
 const KEY = 'lavendel-v1';
-const VERSION = 11;
+const VERSION = 12;
 const MEALS = [
   { k: 'fr', n: 'Frühstück', i: 'ti-coffee' },
   { k: 'mi', n: 'Mittagessen', i: 'ti-salad' },
@@ -54,6 +54,7 @@ function defState() {
     goals: null, waterGoal: 3, bottle: 0.75, setup: false,
     medis: [{ id: 'm1', name: 'Vitamin B12', time: 'morgens' }, { id: 'm2', name: 'Vitamin D3', time: 'morgens' }],
     custom: [], recipes: [], recent: [], lastAmt: {}, days: {}, shop: [], ui: { medisOpen: true },
+    recipeCats: ['Frühstück', 'Snack', 'Meal'],
   };
 }
 function load() {
@@ -125,6 +126,9 @@ function seedRecipes() {
     S.recipes.push({ id: uid(), sid: r.sid, icon: r.icon, name: r.name, servings: r.servings, meta: r.meta, items,
       notes: r.steps.map((s, i) => `${i + 1}. ${s}`).join('\n'), tip: r.tip || '' });
   }
+  // Standardrezepte einmalig einer Kategorie zuordnen
+  const SNACKS = ['hummus', 'gurkentoast'];
+  for (const r of S.recipes) if (r.sid && r.cat === undefined) { r.cat = SNACKS.includes(r.sid) ? 'Snack' : 'Meal'; changed = true; }
   if (changed) save();
 }
 // Menge einer Zutat als Text, f = Skalierung
@@ -324,16 +328,42 @@ function vRezepte() {
     if (r) return vRezeptView(r) + shopFab();
     recipeView = null;
   }
-  const list = S.recipes.slice().sort((a, b) => a.name.localeCompare(b.name, 'de')).map(r => {
+  return `<div class="top"><h1 class="grow" style="margin:4px 0">Rezepte</h1>
+      <button class="iconbtn" data-act="manageCats" aria-label="Kategorien bearbeiten"><i class="ti ti-category"></i></button></div>
+    ${S.recipes.length ? `<div class="search" style="margin-bottom:4px"><i class="ti ti-search"></i><input id="rq" type="search" placeholder="Rezept oder Zutat suchen" autocomplete="off" value="${esc(recipeQ)}"></div>` : ''}
+    <div id="rlist">${recipeListHtml(recipeQ)}</div>
+    <button class="primary" data-act="newRecipe"><i class="ti ti-plus"></i> Neues Rezept</button>${shopFab()}`;
+}
+let recipeQ = '';
+const recipeCat = r => S.recipeCats.includes(r.cat) ? r.cat : '';
+function recipeListHtml(q) {
+  if (!S.recipes.length) return `<div class="card banner"><i class="ti ti-chef-hat"></i><span class="grow"><b>Leg dein erstes Rezept an</b><br><small>Zutaten einmal eintragen, danach mit einem Tipp als Portion ins Tagebuch.</small></span></div>`;
+  // Suche über Name, Kategorie und Zutaten
+  const words = norm(q || '').split(/\s+/).filter(Boolean);
+  const hay = r => norm(`${r.name} ${r.cat || ''} ${r.items.map(i => i.name).join(' ')}`);
+  const rs = S.recipes.filter(r => words.every(w => hay(r).includes(w))).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  if (!rs.length) return '<p class="empty">Kein Rezept gefunden.</p>';
+  const card = r => {
     const { t } = recipeTotals(r.items);
     return `<button class="rcard" data-act="openRecipe" data-id="${r.id}"><span class="ic">${r.icon ? `<span class="emo">${esc(r.icon)}</span>` : '<i class="ti ti-chef-hat"></i>'}</span>
       <span class="grow"><b>${esc(r.name)}</b><small>${fmt(r.servings, 1)} Portionen · ${fmt(t.kcal / r.servings)} kcal pro Portion</small></span><i class="ti ti-chevron-right chev"></i></button>`;
-  }).join('');
-  return `<h1>Rezepte</h1>
-  ${list ? `<div class="card" style="padding:2px 14px">${list}</div>`
-    : `<div class="card banner"><i class="ti ti-chef-hat"></i><span class="grow"><b>Leg dein erstes Rezept an</b><br><small>Zutaten einmal eintragen, danach mit einem Tipp als Portion ins Tagebuch.</small></span></div>`}
-  <button class="primary" data-act="newRecipe"><i class="ti ti-plus"></i> Neues Rezept</button>${shopFab()}`;
+  };
+  return S.recipeCats.concat(['']).map(c => [c, rs.filter(r => recipeCat(r) === c)]).filter(g => g[1].length)
+    .map(([c, list]) => `<h3 class="rcat">${c ? esc(c) : 'Ohne Kategorie'}<small>${list.length}</small></h3>
+      <div class="card" style="padding:2px 14px">${list.map(card).join('')}</div>`).join('');
 }
+function openCats() {
+  const n = c => S.recipes.filter(r => r.cat === c).length;
+  showSheet(`<div class="shead"><h2 class="grow">Kategorien</h2>${closeBtn}</div>
+    <div class="card" style="padding:2px 14px">${S.recipeCats.map((c, i) => `<div class="catrow"><span class="grow">${esc(c)}<small>${n(c)} ${n(c) === 1 ? 'Rezept' : 'Rezepte'}</small></span>
+      <button class="del" data-act="renCat" data-i="${i}" aria-label="${esc(c)} umbenennen"><i class="ti ti-edit"></i></button>
+      <button class="del" data-act="delCat" data-i="${i}" aria-label="${esc(c)} löschen"><i class="ti ti-trash"></i></button></div>`).join('') || '<p class="note">Noch keine Kategorien.</p>'}</div>
+    <div class="codein"><input id="catin" placeholder="Neue Kategorie, z. B. Dessert" autocomplete="off" aria-label="Neue Kategorie">
+      <button class="secondary" data-act="addCat" aria-label="Kategorie hinzufügen"><i class="ti ti-plus"></i></button></div>
+    <p id="caterr" class="err hidden"></p>
+    <p class="note">Welche Kategorie ein Rezept hat, stellst du beim Bearbeiten des Rezepts ein.</p>`);
+}
+const catTaken = name => S.recipeCats.some(c => norm(c) === norm(name));
 
 function nutGrid(t, div) {
   const v = (k, d) => fmt(t[k] / div, d);
@@ -382,6 +412,8 @@ function vRezeptEdit() {
     <div class="card">
       <label class="field">Name<input data-draft="name" value="${esc(d.name)}" placeholder="Linsencurry" autocomplete="off"></label>
       <label class="field">Das Rezept ergibt (Portionen)<input data-draft="servings" inputmode="decimal" value="${fv(d.servings)}"></label>
+      <label class="field" style="margin:0">Kategorie<select data-draft="cat">${[''].concat(S.recipeCats).map(c => `<option value="${esc(c)}"${(S.recipeCats.includes(d.cat) ? d.cat : '') === c ? ' selected' : ''}>${c ? esc(c) : 'Ohne Kategorie'}</option>`).join('')}
+        <option value="__new">+ Neue Kategorie …</option></select></label>
     </div>
     <div class="card"><div class="chead"><span>Zutaten</span><span class="val">${fmt(t.kcal)} kcal gesamt</span></div>
       ${rows ? rows + '<p class="note" style="margin-bottom:0">Tipp aufs <i class="ti ti-home"></i>, um eine Zutat als Vorrat zu markieren. Vorrat kommt nicht auf die Einkaufsliste.</p>' : '<p class="note">Noch keine Zutaten.</p>'}
@@ -738,6 +770,7 @@ const ACT = {
     tab = el.dataset.tab;
     // Rezepte-Tab führt immer zur Rezeptliste (nur ein offener Rezept-Entwurf bleibt erhalten)
     if (tab === 'rezepte' && recipeView && recipeView.mode !== 'edit') recipeView = null;
+    if (tab === 'rezepte' && !recipeView) recipeQ = '';
     render(); window.scrollTo(0, 0);
   },
   copyLast: () => {
@@ -771,6 +804,28 @@ const ACT = {
     recipeView = d.id ? { mode: 'view', id: d.id, scale: null } : null; render();
   },
   addIng: () => { addTarget = 'recipe'; openSearch(autoMeal()); },
+  manageCats: () => openCats(),
+  addCat: () => {
+    const name = $('#catin').value.trim(), err = $('#caterr');
+    if (!name) return;
+    if (catTaken(name)) { err.textContent = 'Diese Kategorie gibt es schon.'; err.classList.remove('hidden'); return; }
+    S.recipeCats.push(name); save(); render(); openCats(); $('#catin').focus();
+  },
+  renCat: el => {
+    const old = S.recipeCats[+el.dataset.i], name = (prompt('Neuer Name für die Kategorie', old) || '').trim();
+    if (!name || name === old) return;
+    if (norm(name) !== norm(old) && catTaken(name)) return alert('Diese Kategorie gibt es schon.');
+    S.recipeCats[+el.dataset.i] = name;
+    S.recipes.forEach(r => { if (r.cat === old) r.cat = name; });
+    save(); render(); openCats();
+  },
+  delCat: el => {
+    const c = S.recipeCats[+el.dataset.i];
+    if (!confirm(`Kategorie „${c}“ löschen? Die Rezepte bleiben erhalten und stehen dann unter „Ohne Kategorie“.`)) return;
+    S.recipeCats.splice(+el.dataset.i, 1);
+    S.recipes.forEach(r => { if (r.cat === c) r.cat = ''; });
+    save(); render(); openCats();
+  },
   togglePantry: el => { const it = recipeView.draft.items[+el.dataset.ri]; it.v = !it.v; render(); },
   delIng: el => { recipeView.draft.items.splice(+el.dataset.ri, 1); render(); },
   saveRecipe: () => {
@@ -907,13 +962,25 @@ document.addEventListener('click', e => {
 /* Rezept-Editor: Eingaben direkt in den Entwurf übernehmen */
 document.addEventListener('input', e => {
   const el = e.target;
-  if (el.dataset.draft && recipeView && recipeView.mode === 'edit') {
+  if (el.id === 'rq') { recipeQ = el.value; $('#rlist').innerHTML = recipeListHtml(recipeQ); return; }
+  if (el.dataset.draft && el.dataset.draft !== 'cat' && recipeView && recipeView.mode === 'edit') {
     recipeView.draft[el.dataset.draft] = el.dataset.draft === 'servings' ? num(el.value) : el.value;
   }
 });
 
 document.addEventListener('change', e => {
   const el = e.target;
+  if (recipeView && recipeView.mode === 'edit' && el.dataset.draft === 'cat') {
+    if (el.value === '__new') {
+      const name = (prompt('Name der neuen Kategorie') || '').trim();
+      if (name) {
+        if (!catTaken(name)) { S.recipeCats.push(name); save(); }
+        recipeView.draft.cat = S.recipeCats.find(c => norm(c) === norm(name));
+      }
+      render(); // bei Abbrechen springt die Auswahl zurück
+    } else recipeView.draft.cat = el.value;
+    return;
+  }
   if (recipeView && recipeView.mode === 'edit' && (el.dataset.draft === 'servings' || el.dataset.ri)) {
     if (el.dataset.ri) {
       const v = num(el.value), it = recipeView.draft.items[+el.dataset.ri];
@@ -952,6 +1019,8 @@ document.addEventListener('change', e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.id === 'aq') ACT.confirmAdd();
   if (e.key === 'Enter' && e.target.id === 'shopin') shopAddManual();
+  if (e.key === 'Enter' && e.target.id === 'catin') ACT.addCat();
+  if (e.key === 'Enter' && e.target.id === 'rq') e.target.blur();
   if (e.key === 'Enter' && e.target.id === 'code') ACT.lookup();
   if (e.key === 'Escape' && sheet) closeSheet();
 });

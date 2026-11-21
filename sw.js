@@ -1,5 +1,5 @@
 ﻿// Offline-Speicher. Bei jedem Update die Versionsnummer erhÃ¶hen (auch VERSION in app.js).
-const CACHE = 'lavendel-v11';
+const CACHE = 'lavendel-v12';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'foods.js', 'recipes-seed.js', 'foods-db.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png',
   'vendor/tabler-icons.min.css', 'vendor/tabler-icons.woff2', 'vendor/html5-qrcode.min.js'];
 

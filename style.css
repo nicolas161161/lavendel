@@ -229,3 +229,10 @@ textarea { font: inherit; font-size: 16px; color: var(--txt); border: 1px solid 
 .lastcard .ditem { padding: 4px 0 0; font-size: 14px; }
 .lastcard .lsum { font-weight: 600; color: var(--l900); border-top: 1px solid var(--l100); margin-top: 6px; padding-top: 6px; }
 .lastcard .secondary.wide { background: #fff; }
+
+/* Rezept-Kategorien */
+.rcat { display: flex; align-items: baseline; gap: 8px; margin: 18px 4px 8px; font-size: 15px; color: var(--l900); }
+.rcat small { color: var(--l400); font-weight: 400; font-size: 13px; }
+.catrow { display: flex; align-items: center; gap: 6px; padding: 10px 0; }
+.catrow + .catrow { border-top: 1px solid var(--line); }
+.catrow small { display: block; color: var(--mut); }
